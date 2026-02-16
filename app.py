@@ -3,7 +3,7 @@ import sqlite3
 import requests
 import re
 import os
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, Response
 from config import JELLYFIN_URL, JELLYFIN_API_KEY
 
 app = Flask(__name__)
@@ -33,9 +33,15 @@ def init_db():
             title TEXT,
             year TEXT,
             actors TEXT,
-            date_added TEXT
+            date_added TEXT,
+            jellyfin_id TEXT
         )
     """)
+    # Add jellyfin_id column if it doesn't exist (for existing databases)
+    try:
+        conn.execute("ALTER TABLE movies ADD COLUMN jellyfin_id TEXT")
+    except:
+        pass  # Column already exists
     conn.commit()
     conn.close()
 
@@ -101,12 +107,14 @@ def sync_jellyfin():
                 [a["Name"] for a in item.get("People", []) if a.get("Type") == "Actor"]
             )
 
+            jellyfin_id = item.get("Id", "")
+
             conn.execute(
                 """
-                INSERT OR REPLACE INTO movies (code, title, year, actors, date_added)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO movies (code, title, year, actors, date_added, jellyfin_id)
+                VALUES (?, ?, ?, ?, ?, ?)
             """,
-                (code, title, year, actors, date_added),
+                (code, title, year, actors, date_added, jellyfin_id),
             )
             count += 1
 
@@ -121,7 +129,7 @@ def sync_jellyfin():
 def get_movies_with_tags():
     csv_codes = load_csv_codes()
     conn = get_db()
-    cursor = conn.execute("SELECT code, title, year, actors FROM movies ORDER BY code")
+    cursor = conn.execute("SELECT code, title, year, actors, jellyfin_id FROM movies ORDER BY code")
     movies = []
     for row in cursor:
         code = row["code"]
@@ -129,6 +137,12 @@ def get_movies_with_tags():
         for label, codes in csv_codes.items():
             if code in codes:
                 tags.append(label)
+
+        # Build Jellyfin poster URL
+        poster_url = None
+        if row["jellyfin_id"]:
+            poster_url = f"/api/poster/{row['jellyfin_id']}"
+
         movies.append(
             {
                 "code": code,
@@ -137,6 +151,7 @@ def get_movies_with_tags():
                 "actors": row["actors"],
                 "tags": tags,
                 "all_tags": list(csv_codes.keys()),
+                "poster_url": poster_url,
             }
         )
     conn.close()
@@ -156,14 +171,17 @@ def get_movies_by_list(list_name):
     for code, rank in codes_dict.items():
         in_jellyfin = code in all_jellyfin_codes
         title = ""
+        poster_url = None
         if in_jellyfin:
             row = conn.execute(
-                "SELECT title, year, actors FROM movies WHERE code = ?", (code,)
+                "SELECT title, year, actors, jellyfin_id FROM movies WHERE code = ?", (code,)
             ).fetchone()
             if row:
                 title = row["title"]
                 year = row["year"]
                 actors = row["actors"]
+                if row["jellyfin_id"]:
+                    poster_url = f"/api/poster/{row['jellyfin_id']}"
         movies.append(
             {
                 "code": code,
@@ -172,6 +190,7 @@ def get_movies_by_list(list_name):
                 "actors": actors if in_jellyfin else "",
                 "in_jellyfin": in_jellyfin,
                 "rank": rank,
+                "poster_url": poster_url,
             }
         )
     # 按排名排序
@@ -292,10 +311,27 @@ def api_sync():
 def api_stats():
     conn = get_db()
     total = conn.execute("SELECT COUNT(*) FROM movies").fetchone()[0]
+
+    # Get counts of movies that are in Jellyfin AND in the respective lists
+    csv_codes = load_csv_codes()
+
+    # Movies in JavDB TOP250 that are in Jellyfin
+    javdb_codes = set(csv_codes.get('JavDB TOP250', {}).keys())
+    javdb_movies = conn.execute("SELECT code FROM movies").fetchall()
+    javdb_count = sum(1 for m in javdb_movies if m['code'] in javdb_codes)
+
+    # Movies in JavLibrary TOP500 that are in Jellyfin
+    javlib_codes = set(csv_codes.get('JavLibray TOP500', {}).keys())
+    javlib_movies = conn.execute("SELECT code FROM movies").fetchall()
+    javlib_count = sum(1 for m in javlib_movies if m['code'] in javlib_codes)
+
     conn.close()
 
-    csv_codes = load_csv_codes()
-    stats = {"total": total}
+    stats = {
+        "total": total,
+        "javdb_count": javdb_count,
+        "javlib_count": javlib_count
+    }
     for label in CSV_FILES:
         stats[label] = len(csv_codes[label])
     return jsonify(stats)
@@ -344,7 +380,7 @@ def api_actor(actor_name):
 
     conn = get_db()
     cursor = conn.execute(
-        "SELECT code, title, year, actors FROM movies WHERE actors LIKE ?",
+        "SELECT code, title, year, actors, jellyfin_id FROM movies WHERE actors LIKE ?",
         (f"%{actor_name}%",),
     )
 
@@ -360,6 +396,11 @@ def api_actor(actor_name):
             if code in codes:
                 tags.append(label)
 
+        # Build Jellyfin poster URL
+        poster_url = None
+        if row["jellyfin_id"]:
+            poster_url = f"/api/poster/{row['jellyfin_id']}"
+
         movies.append(
             {
                 "code": code,
@@ -368,11 +409,31 @@ def api_actor(actor_name):
                 "actors": actors,
                 "tags": tags,
                 "all_tags": all_tags,
+                "poster_url": poster_url,
             }
         )
 
     conn.close()
     return jsonify(movies)
+
+
+# Proxy endpoint for Jellyfin images (adds authentication)
+@app.route("/api/poster/<jellyfin_id>")
+def api_poster(jellyfin_id):
+    headers = {"X-Emby-Token": JELLYFIN_API_KEY}
+    # Remove query params if any
+    jellyfin_id = jellyfin_id.split('?')[0]
+    url = f"{JELLYFIN_URL}Items/{jellyfin_id}/Images/Primary?maxWidth=400"
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        # Return the image with proper content type
+        content_type = resp.headers.get('Content-Type', 'image/jpeg')
+        return Response(resp.content, mimetype=content_type)
+    except Exception as e:
+        print(f"Poster fetch error: {e}")
+        return "", 404
 
 
 if __name__ == "__main__":

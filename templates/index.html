@@ -10,135 +10,171 @@
 </head>
 <body>
     <div id="app">
+        <!-- Header -->
         <header>
-            <h1>🎬 Jellyfin 影片管理</h1>
+            <h1>Jellyfin Movies</h1>
             <div class="header-actions">
                 <button @click="sync" :disabled="syncing" class="sync-btn">
                     <span v-if="syncing">同步中...</span>
-                    <span v-else>🔄 同步 Jellyfin</span>
+                    <span v-else>🔄 同步</span>
                 </button>
                 <span class="stats">共 [[ stats.total ]] 部影片</span>
             </div>
         </header>
 
-        <div class="tabs">
-            <button 
-                v-for="tab in tabs" 
-                :key="tab.id"
-                :class="['tab', { active: currentTab === tab.id }]"
-                @click="switchTab(tab.id)"
-            >
-                [[ tab.icon ]] [[ tab.name ]]
-            </button>
-        </div>
+        <!-- Hero Section -->
+        <section class="hero-section">
+            <div class="hero-content">
+                <h2>Jellyfin 影片库</h2>
+                <p>管理您的私人影片收藏，探索 JavDB 和 JavLibray 榜单</p>
+                <div class="stats-row">
+                    <div class="stat-card">
+                        <div class="number">[[ stats.total ]]</div>
+                        <div class="label">部影片</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="number">[[ stats.javdb_count || 0 ]]</div>
+                        <div class="label">JavDB TOP250</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="number">[[ stats.javlib_count || 0 ]]</div>
+                        <div class="label">JavLibrary TOP500</div>
+                    </div>
+                </div>
+            </div>
+        </section>
 
-        <div class="search-bar" v-if="currentTab === 'all' || currentTab.startsWith('actor_')">
-            <input 
-                type="text" 
-                v-model="search" 
-                placeholder="搜索番号或演员..."
-                @input="handleSearch"
-            >
-            <select v-model="sortBy" @change="handleSearch" class="sort-select">
-                <option value="code">按番号排序</option>
-                <option value="year_desc">按年份(新→旧)</option>
-                <option value="year_asc">按年份(旧→新)</option>
-            </select>
-        </div>
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Tabs -->
+            <div class="tabs">
+                <button
+                    v-for="tab in tabs"
+                    :key="tab.id"
+                    :class="['tab', { active: currentTab === tab.id }]"
+                    @click="switchTab(tab.id)"
+                >
+                    [[ tab.icon ]] [[ tab.name ]]
+                </button>
+            </div>
 
-        <div class="content">
-            <!-- 全部影片 -->
+            <!-- Search Bar -->
+            <div class="search-bar" v-if="currentTab === 'all' || currentTab.startsWith('actor_')">
+                <div class="search-wrapper">
+                    <input
+                        type="text"
+                        v-model="search"
+                        placeholder="搜索番号或演员..."
+                        @input="handleSearch"
+                    >
+                </div>
+                <select v-model="sortBy" @change="handleSearch" class="sort-select">
+                    <option value="code">按番号排序</option>
+                    <option value="year_desc">按年份(新→旧)</option>
+                    <option value="year_asc">按年份(旧→新)</option>
+                </select>
+            </div>
+
+            <!-- Movie Cards Grid (All Movies) -->
             <div v-if="currentTab === 'all'" class="movie-list">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>番号</th>
-                            <th>标题</th>
-                            <th>年份</th>
-                            <th>演员</th>
-                            <th>上榜情况</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="movie in movies" :key="movie.code">
-                            <td class="code">[[ movie.code ]]</td>
-                            <td class="title">[[ movie.title ]]</td>
-                            <td>[[ movie.year ]]</td>
-                            <td class="actors">[[ movie.actors ]]</td>
-                            <td class="tags">
+                <div class="section-title">全部影片</div>
+
+                <!-- Movie Cards Grid -->
+                <div class="movie-grid">
+                    <div v-for="movie in movies" :key="movie.code" class="movie-card">
+                        <div class="movie-poster">
+                            <img v-if="movie.poster_url" :src="movie.poster_url" :alt="movie.title" @error="handlePosterError($event)">
+                            <svg v-else class="placeholder-icon" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>
+                            </svg>
+                        </div>
+                        <div class="movie-info">
+                            <div class="movie-code">[[ movie.code ]]</div>
+                            <div class="movie-title" :title="movie.title">[[ movie.title ]]</div>
+                            <div class="movie-year">[[ movie.year ]]</div>
+                            <div class="movie-tags">
                                 <span
                                     v-for="tag in movie.all_tags"
                                     :key="tag"
-                                    :class="['tag', movie.tags.includes(tag) ? 'tag-active' : 'tag-inactive']"
+                                    :class="['movie-tag', movie.tags.includes(tag) ? 'active' : 'inactive']"
                                 >
                                     [[ getShortTag(tag) ]]
                                 </span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div v-if="movies.length === 0" class="empty">暂无数据</div>
+
+                <!-- Pagination -->
                 <div class="pagination" v-if="totalPages > 1">
                     <button @click="goToPage(1)" :disabled="currentPage === 1">首页</button>
                     <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1">上一页</button>
                     <span class="page-info">第 [[ currentPage ]] / [[ totalPages ]] 页 (共 [[ totalItems ]] 条)</span>
                     <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages">下一页</button>
                     <button @click="goToPage(totalPages)" :disabled="currentPage === totalPages">末页</button>
-                    <select v-model="pageSize" @change="changePageSize(pageSize)" class="page-size-select">
+                    <select v-model="pageSize" @change="changePageSize(pageSize)" class="sort-select" style="padding: 8px 16px;">
                         <option :value="50">50条/页</option>
                         <option :value="100">100条/页</option>
                     </select>
                 </div>
             </div>
 
-            <!-- 榜单视图 -->
-            <div v-else-if="currentTab.startsWith('javdb') || currentTab === 'javlib'" class="movie-list">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>番号</th>
-                            <th>标题</th>
-                            <th>年份</th>
-                            <th>演员</th>
-                            <th>Jellyfin 收录</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="movie in listMovies" :key="movie.code" :class="{ 'not-in-jellyfin': !movie.in_jellyfin }">
-                            <td class="rank">[[ movie.rank ]]</td>
-                            <td class="code">
-                                <a :href="'https://www.javbus.com/' + movie.code" target="_blank" class="javbus-link">[[ movie.code ]]</a>
-                            </td>
-                            <td class="title">[[ movie.title || '-' ]]</td>
-                            <td>[[ movie.year ]]</td>
-                            <td class="actors">[[ movie.actors ]]</td>
-                            <td>
-                                <span :class="['status', movie.in_jellyfin ? 'status-yes' : 'status-no']">
-                                    [[ movie.in_jellyfin ? '✓ 已收录' : '✗ 未收录' ]]
-                                </span>
-                                <a v-if="!movie.in_jellyfin" :href="'https://www.javbus.com/' + movie.code" target="_blank" class="javbus-btn">JavBus</a>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+            <!-- Rank Tables -->
+            <div v-else-if="currentTab.startsWith('javdb') || currentTab === 'javlib'" class="rank-section">
+                <div class="section-title">[[ getTabTitle(currentTab) ]]</div>
+
+                <div class="rank-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>番号</th>
+                                <th>标题</th>
+                                <th>年份</th>
+                                <th>演员</th>
+                                <th>收录状态</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="movie in listMovies" :key="movie.code" :class="{ 'not-in-jellyfin': !movie.in_jellyfin }">
+                                <td class="rank">[[ movie.rank ]]</td>
+                                <td class="code">
+                                    <a :href="'https://www.javbus.com/' + movie.code" target="_blank" class="javbus-link">[[ movie.code ]]</a>
+                                </td>
+                                <td class="title">[[ movie.title || '-' ]]</td>
+                                <td>[[ movie.year ]]</td>
+                                <td class="actors">[[ movie.actors ]]</td>
+                                <td>
+                                    <span :class="['status-badge', movie.in_jellyfin ? 'yes' : 'no']">
+                                        <span v-if="movie.in_jellyfin">✓</span>
+                                        <span v-else>✗</span>
+                                        [[ movie.in_jellyfin ? '已收录' : '未收录' ]]
+                                    </span>
+                                    <a v-if="!movie.in_jellyfin" :href="'https://www.javbus.com/' + movie.code" target="_blank" class="javbus-btn">JavBus</a>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
                 <div class="pagination" v-if="totalPages > 1">
                     <button @click="goToPage(1)" :disabled="currentPage === 1">首页</button>
                     <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1">上一页</button>
                     <span class="page-info">第 [[ currentPage ]] / [[ totalPages ]] 页 (共 [[ totalItems ]] 条)</span>
                     <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages">下一页</button>
                     <button @click="goToPage(totalPages)" :disabled="currentPage === totalPages">末页</button>
-                    <select v-model="pageSize" @change="changePageSize(pageSize)" class="page-size-select">
+                    <select v-model="pageSize" @change="changePageSize(pageSize)" class="sort-select" style="padding: 8px 16px;">
                         <option :value="50">50条/页</option>
                         <option :value="100">100条/页</option>
                     </select>
                 </div>
             </div>
 
-            <!-- 未收录 -->
+            <!-- Missing View -->
             <div v-else-if="currentTab === 'missing'" class="missing-view">
-                <!-- 两榜单均未收录 -->
-                <div v-if="missing.both.length > 0" class="missing-section both-section">
+                <div v-if="missing.both && missing.both.length > 0" class="missing-section both-section">
                     <h2>⚠️ 两榜单均未收录 ([[ missing.both.length ]])</h2>
                     <div class="code-list">
                         <span v-for="code in missing.both" :key="code" class="code-item code-item-both">
@@ -147,55 +183,59 @@
                     </div>
                 </div>
 
-                <!-- 两个榜单并排 -->
                 <div class="missing-tables">
                     <div class="missing-section">
-                        <h2>JavDB TOP250 未收录 ([[ missing.javdb.length ]])</h2>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>番号</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="item in missing.javdb" :key="item.code" :class="{ 'in-both': missing.both.includes(item.code) }">
-                                    <td class="rank">[[ item.rank ]]</td>
-                                    <td class="code">
-                                        <a :href="'https://www.javbus.com/' + item.code" target="_blank" class="javbus-link">[[ item.code ]]</a>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                        <h2>JavDB TOP250 未收录 ([[ missing.javdb ? missing.javdb.length : 0 ]])</h2>
+                        <div class="rank-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>番号</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="item in missing.javdb" :key="item.code" :class="{ 'in-both': missing.both && missing.both.includes(item.code) }">
+                                        <td class="rank">[[ item.rank ]]</td>
+                                        <td class="code">
+                                            <a :href="'https://www.javbus.com/' + item.code" target="_blank" class="javbus-link">[[ item.code ]]</a>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                     <div class="missing-section">
-                        <h2>JavLibray TOP500 未收录 ([[ missing.javlib.length ]])</h2>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>番号</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="item in missing.javlib" :key="item.code" :class="{ 'in-both': missing.both.includes(item.code) }">
-                                    <td class="rank">[[ item.rank ]]</td>
-                                    <td class="code">
-                                        <a :href="'https://www.javbus.com/' + item.code" target="_blank" class="javbus-link">[[ item.code ]]</a>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                        <h2>JavLibray TOP500 未收录 ([[ missing.javlib ? missing.javlib.length : 0 ]])</h2>
+                        <div class="rank-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>番号</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="item in missing.javlib" :key="item.code" :class="{ 'in-both': missing.both && missing.both.includes(item.code) }">
+                                        <td class="rank">[[ item.rank ]]</td>
+                                        <td class="code">
+                                            <a :href="'https://www.javbus.com/' + item.code" target="_blank" class="javbus-link">[[ item.code ]]</a>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- 演员列表 -->
+            <!-- Actors List -->
             <div v-else-if="currentTab === 'actors'" class="actors-view">
+                <div class="section-title">演员列表</div>
                 <div class="actor-list">
-                    <div 
-                        v-for="actor in actors" 
-                        :key="actor.name" 
+                    <div
+                        v-for="actor in actors"
+                        :key="actor.name"
                         class="actor-item"
                         @click="showActorMovies(actor.name)"
                     >
@@ -205,40 +245,38 @@
                 </div>
             </div>
 
-            <!-- 演员详情 -->
+            <!-- Actor Detail -->
             <div v-else-if="currentTab.startsWith('actor_')" class="actor-detail">
                 <button class="back-btn" @click="currentTab = 'actors'; loadActors()">← 返回演员列表</button>
                 <h2>[[ currentActorName ]] 的影片 ([[ actorMovies.length ]] 部)</h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>番号</th>
-                            <th>标题</th>
-                            <th>年份</th>
-                            <th>演员</th>
-                            <th>上榜情况</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="movie in actorMovies" :key="movie.code">
-                            <td class="code">[[ movie.code ]]</td>
-                            <td class="title">[[ movie.title ]]</td>
-                            <td>[[ movie.year ]]</td>
-                            <td class="actors">[[ movie.actors ]]</td>
-                            <td class="tags">
-                                <span 
-                                    v-for="tag in movie.all_tags" 
+
+                <!-- Movie Cards Grid for Actor -->
+                <div class="movie-grid">
+                    <div v-for="movie in actorMovies" :key="movie.code" class="movie-card">
+                        <div class="movie-poster">
+                            <img v-if="movie.poster_url" :src="movie.poster_url" :alt="movie.title" @error="handlePosterError($event)">
+                            <svg v-else class="placeholder-icon" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>
+                            </svg>
+                        </div>
+                        <div class="movie-info">
+                            <div class="movie-code">[[ movie.code ]]</div>
+                            <div class="movie-title" :title="movie.title">[[ movie.title ]]</div>
+                            <div class="movie-year">[[ movie.year ]]</div>
+                            <div class="movie-tags">
+                                <span
+                                    v-for="tag in movie.all_tags"
                                     :key="tag"
-                                    :class="['tag', movie.tags.includes(tag) ? 'tag-active' : 'tag-inactive']"
+                                    :class="['movie-tag', movie.tags.includes(tag) ? 'active' : 'inactive']"
                                 >
                                     [[ getShortTag(tag) ]]
                                 </span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>
+        </main>
     </div>
 
     <script>
@@ -249,16 +287,16 @@
                 const currentTab = ref('all');
                 const movies = ref([]);
                 const listMovies = ref([]);
-                const missing = ref({ javdb: [], javlib: [] });
+                const missing = ref({ javdb: [], javlib: [], both: [] });
                 const actors = ref([]);
                 const actorMovies = ref([]);
                 const currentActorName = ref('');
                 const search = ref('');
                 const sortBy = ref('code');
                 const syncing = ref(false);
-                const stats = ref({ total: 0 });
+                const stats = ref({ total: 0, javdb_count: 0, javlib_count: 0 });
 
-                // 分页状态
+                // Pagination
                 const currentPage = ref(1);
                 const pageSize = ref(50);
                 const totalPages = ref(1);
@@ -284,6 +322,20 @@
                         'JavLibray TOP500': 'JL'
                     };
                     return map[tag] || tag;
+                };
+
+                // Handle poster image load error - show placeholder
+                const handlePosterError = (event) => {
+                    event.target.style.display = 'none';
+                    const placeholder = event.target.nextElementSibling;
+                    if (placeholder) {
+                        placeholder.style.display = 'block';
+                    }
+                };
+
+                const getTabTitle = (tabId) => {
+                    const tab = tabs.find(t => t.id === tabId);
+                    return tab ? tab.name : '';
                 };
 
                 const sortMovies = (list) => {
@@ -436,6 +488,7 @@
                     totalPages,
                     totalItems,
                     getShortTag,
+                    getTabTitle,
                     loadMovies,
                     handleSearch,
                     loadActors,
@@ -443,11 +496,12 @@
                     sync,
                     switchTab,
                     goToPage,
-                    changePageSize
+                    changePageSize,
+                    handlePosterError
                 };
             }
         });
-        
+
         app.config.compilerOptions.delimiters = ['[[', ']]'];
         app.mount('#app');
     </script>
