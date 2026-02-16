@@ -233,6 +233,12 @@ tr:hover {
 }
 
 .missing-view {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.missing-view .missing-tables {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 30px;
@@ -266,15 +272,15 @@ tr:hover {
 }
 
 @media (max-width: 768px) {
-    .missing-view {
+    .missing-view .missing-tables {
         grid-template-columns: 1fr;
     }
-    
+
     header {
         flex-direction: column;
         gap: 15px;
     }
-    
+
     .content {
         padding: 15px;
     }
@@ -349,4 +355,148 @@ tr:hover {
 .back-btn:hover {
     background: #667eea;
     color: white;
+}
+
+/* JavBus Links and Buttons */
+.javbus-link {
+    color: #667eea;
+    text-decoration: none;
+    transition: color 0.3s;
+}
+
+.javbus-link:hover {
+    color: #764ba2;
+    text-decoration: underline;
+}
+
+.javbus-btn {
+    display: inline-block;
+    background: #ff6b6b;
+    color: white;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-decoration: none;
+    margin-left: 8px;
+    transition: all 0.3s;
+}
+
+.javbus-btn:hover {
+    background: #ee5a5a;
+    transform: translateY(-1px);
+}
+
+/* Rank column */
+.rank {
+    color: #999;
+    font-size: 12px;
+    width: 40px;
+}
+
+/* Missing view tables */
+.missing-tables {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+}
+
+.missing-section table {
+    width: 100%;
+    margin-top: 10px;
+}
+
+.missing-section th,
+.missing-section td {
+    padding: 8px 10px;
+    font-size: 13px;
+}
+
+.labels {
+    display: flex;
+    gap: 4px;
+}
+
+.label-badge {
+    background: #e5e7eb;
+    color: #666;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.code-item-both {
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+}
+
+.both-section {
+    border: 2px solid #f59e0b;
+}
+
+.both-section h2 {
+    color: #d97706;
+}
+
+.both-section .code-list {
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.in-both {
+    background: #fef3c7;
+}
+
+.in-both:hover {
+    background: #fde68a;
+}
+
+/* Pagination */
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 20px;
+    background: white;
+    border-radius: 0 0 10px 10px;
+    border-top: 1px solid #eee;
+}
+
+.pagination button {
+    padding: 8px 16px;
+    border: 1px solid #ddd;
+    background: white;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.3s;
+}
+
+.pagination button:hover:not(:disabled) {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+}
+
+.pagination button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.page-info {
+    color: #666;
+    font-size: 13px;
+    padding: 0 10px;
+}
+
+.page-size-select {
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 15px;
+    font-size: 13px;
+    background: white;
+    cursor: pointer;
+    margin-left: 10px;
 }

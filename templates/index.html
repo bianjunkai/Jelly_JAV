@@ -66,8 +66,8 @@
                             <td>[[ movie.year ]]</td>
                             <td class="actors">[[ movie.actors ]]</td>
                             <td class="tags">
-                                <span 
-                                    v-for="tag in movie.all_tags" 
+                                <span
+                                    v-for="tag in movie.all_tags"
                                     :key="tag"
                                     :class="['tag', movie.tags.includes(tag) ? 'tag-active' : 'tag-inactive']"
                                 >
@@ -78,6 +78,17 @@
                     </tbody>
                 </table>
                 <div v-if="movies.length === 0" class="empty">暂无数据</div>
+                <div class="pagination" v-if="totalPages > 1">
+                    <button @click="goToPage(1)" :disabled="currentPage === 1">首页</button>
+                    <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1">上一页</button>
+                    <span class="page-info">第 [[ currentPage ]] / [[ totalPages ]] 页 (共 [[ totalItems ]] 条)</span>
+                    <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages">下一页</button>
+                    <button @click="goToPage(totalPages)" :disabled="currentPage === totalPages">末页</button>
+                    <select v-model="pageSize" @change="changePageSize(pageSize)" class="page-size-select">
+                        <option :value="50">50条/页</option>
+                        <option :value="100">100条/页</option>
+                    </select>
+                </div>
             </div>
 
             <!-- 榜单视图 -->
@@ -85,6 +96,7 @@
                 <table>
                     <thead>
                         <tr>
+                            <th>#</th>
                             <th>番号</th>
                             <th>标题</th>
                             <th>年份</th>
@@ -94,7 +106,10 @@
                     </thead>
                     <tbody>
                         <tr v-for="movie in listMovies" :key="movie.code" :class="{ 'not-in-jellyfin': !movie.in_jellyfin }">
-                            <td class="code">[[ movie.code ]]</td>
+                            <td class="rank">[[ movie.rank ]]</td>
+                            <td class="code">
+                                <a :href="'https://www.javbus.com/' + movie.code" target="_blank" class="javbus-link">[[ movie.code ]]</a>
+                            </td>
                             <td class="title">[[ movie.title || '-' ]]</td>
                             <td>[[ movie.year ]]</td>
                             <td class="actors">[[ movie.actors ]]</td>
@@ -102,24 +117,75 @@
                                 <span :class="['status', movie.in_jellyfin ? 'status-yes' : 'status-no']">
                                     [[ movie.in_jellyfin ? '✓ 已收录' : '✗ 未收录' ]]
                                 </span>
+                                <a v-if="!movie.in_jellyfin" :href="'https://www.javbus.com/' + movie.code" target="_blank" class="javbus-btn">JavBus</a>
                             </td>
                         </tr>
                     </tbody>
                 </table>
+                <div class="pagination" v-if="totalPages > 1">
+                    <button @click="goToPage(1)" :disabled="currentPage === 1">首页</button>
+                    <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1">上一页</button>
+                    <span class="page-info">第 [[ currentPage ]] / [[ totalPages ]] 页 (共 [[ totalItems ]] 条)</span>
+                    <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages">下一页</button>
+                    <button @click="goToPage(totalPages)" :disabled="currentPage === totalPages">末页</button>
+                    <select v-model="pageSize" @change="changePageSize(pageSize)" class="page-size-select">
+                        <option :value="50">50条/页</option>
+                        <option :value="100">100条/页</option>
+                    </select>
+                </div>
             </div>
 
             <!-- 未收录 -->
             <div v-else-if="currentTab === 'missing'" class="missing-view">
-                <div class="missing-section">
-                    <h2>JavDB 未收录 ([[ missing.javdb.length ]])</h2>
+                <!-- 两榜单均未收录 -->
+                <div v-if="missing.both.length > 0" class="missing-section both-section">
+                    <h2>⚠️ 两榜单均未收录 ([[ missing.both.length ]])</h2>
                     <div class="code-list">
-                        <span v-for="code in missing.javdb" :key="code" class="code-item">[[ code ]]</span>
+                        <span v-for="code in missing.both" :key="code" class="code-item code-item-both">
+                            <a :href="'https://www.javbus.com/' + code" target="_blank" class="javbus-link">[[ code ]]</a>
+                        </span>
                     </div>
                 </div>
-                <div class="missing-section">
-                    <h2>JavLibray 未收录 ([[ missing.javlib.length ]])</h2>
-                    <div class="code-list">
-                        <span v-for="code in missing.javlib" :key="code" class="code-item">[[ code ]]</span>
+
+                <!-- 两个榜单并排 -->
+                <div class="missing-tables">
+                    <div class="missing-section">
+                        <h2>JavDB TOP250 未收录 ([[ missing.javdb.length ]])</h2>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>番号</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="item in missing.javdb" :key="item.code" :class="{ 'in-both': missing.both.includes(item.code) }">
+                                    <td class="rank">[[ item.rank ]]</td>
+                                    <td class="code">
+                                        <a :href="'https://www.javbus.com/' + item.code" target="_blank" class="javbus-link">[[ item.code ]]</a>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="missing-section">
+                        <h2>JavLibray TOP500 未收录 ([[ missing.javlib.length ]])</h2>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>番号</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="item in missing.javlib" :key="item.code" :class="{ 'in-both': missing.both.includes(item.code) }">
+                                    <td class="rank">[[ item.rank ]]</td>
+                                    <td class="code">
+                                        <a :href="'https://www.javbus.com/' + item.code" target="_blank" class="javbus-link">[[ item.code ]]</a>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -192,12 +258,19 @@
                 const syncing = ref(false);
                 const stats = ref({ total: 0 });
 
+                // 分页状态
+                const currentPage = ref(1);
+                const pageSize = ref(50);
+                const totalPages = ref(1);
+                const totalItems = ref(0);
+
                 const tabs = [
                     { id: 'all', name: '全部', icon: '📚' },
                     { id: 'actors', name: '演员', icon: '👤' },
                     { id: 'javdb', name: 'JavDB TOP250', icon: '🏆' },
-                    { id: 'javdb_2024', name: 'JavDB 2024', icon: '🏆' },
                     { id: 'javdb_2025', name: 'JavDB 2025', icon: '🏆' },
+                    { id: 'javdb_2024', name: 'JavDB 2024', icon: '🏆' },
+                    { id: 'javdb_2023', name: 'JavDB 2023', icon: '🏆' },
                     { id: 'javlib', name: 'JavLibray TOP500', icon: '🏆' },
                     { id: 'missing', name: '未收录', icon: '❌' }
                 ];
@@ -205,8 +278,9 @@
                 const getShortTag = (tag) => {
                     const map = {
                         'JavDB TOP250': 'DB',
-                        'JavDB 2024 TOP250': 'DB24',
                         'JavDB 2025 TOP250': 'DB25',
+                        'JavDB 2024 TOP250': 'DB24',
+                        'JavDB 2023 TOP250': 'DB23',
                         'JavLibray TOP500': 'JL'
                     };
                     return map[tag] || tag;
@@ -222,11 +296,20 @@
                 };
 
                 const loadMovies = async () => {
-                    const res = await axios.get('/api/movies', { params: { search: search.value } });
-                    movies.value = sortMovies(res.data);
+                    const res = await axios.get('/api/movies', {
+                        params: {
+                            search: search.value,
+                            page: currentPage.value,
+                            page_size: pageSize.value
+                        }
+                    });
+                    movies.value = sortMovies(res.data.data);
+                    totalPages.value = res.data.total_pages;
+                    totalItems.value = res.data.total;
                 };
 
                 const handleSearch = () => {
+                    currentPage.value = 1;
                     if (currentTab.value === 'all') {
                         loadMovies();
                     } else if (currentTab.value.startsWith('actor_')) {
@@ -241,12 +324,20 @@
                 const loadList = async (listName) => {
                     let apiName = listName;
                     if (listName === 'javdb') apiName = 'JavDB TOP250';
-                    if (listName === 'javdb_2024') apiName = 'JavDB 2024 TOP250';
                     if (listName === 'javdb_2025') apiName = 'JavDB 2025 TOP250';
+                    if (listName === 'javdb_2024') apiName = 'JavDB 2024 TOP250';
+                    if (listName === 'javdb_2023') apiName = 'JavDB 2023 TOP250';
                     if (listName === 'javlib') apiName = 'JavLibray TOP500';
-                    
-                    const res = await axios.get(`/api/list/${encodeURIComponent(apiName)}`);
-                    listMovies.value = res.data;
+
+                    const res = await axios.get(`/api/list/${encodeURIComponent(apiName)}`, {
+                        params: {
+                            page: currentPage.value,
+                            page_size: pageSize.value
+                        }
+                    });
+                    listMovies.value = res.data.data;
+                    totalPages.value = res.data.total_pages;
+                    totalItems.value = res.data.total;
                 };
 
                 const loadMissing = async () => {
@@ -285,6 +376,7 @@
 
                 const switchTab = async (tabId) => {
                     currentTab.value = tabId;
+                    currentPage.value = 1;
                     if (tabId === 'all') {
                         await loadMovies();
                     } else if (tabId === 'missing') {
@@ -298,6 +390,26 @@
                         actorMovies.value = sortMovies(res.data);
                     } else {
                         await loadList(tabId);
+                    }
+                };
+
+                const goToPage = async (page) => {
+                    if (page < 1 || page > totalPages.value) return;
+                    currentPage.value = page;
+                    if (currentTab.value === 'all') {
+                        await loadMovies();
+                    } else if (currentTab.value.startsWith('javdb') || currentTab.value === 'javlib') {
+                        await loadList(currentTab.value);
+                    }
+                };
+
+                const changePageSize = async (size) => {
+                    pageSize.value = size;
+                    currentPage.value = 1;
+                    if (currentTab.value === 'all') {
+                        await loadMovies();
+                    } else if (currentTab.value.startsWith('javdb') || currentTab.value === 'javlib') {
+                        await loadList(currentTab.value);
                     }
                 };
 
@@ -319,13 +431,19 @@
                     syncing,
                     stats,
                     tabs,
+                    currentPage,
+                    pageSize,
+                    totalPages,
+                    totalItems,
                     getShortTag,
                     loadMovies,
                     handleSearch,
                     loadActors,
                     showActorMovies,
                     sync,
-                    switchTab
+                    switchTab,
+                    goToPage,
+                    changePageSize
                 };
             }
         });

@@ -11,8 +11,9 @@ DB_PATH = "data.db"
 
 CSV_FILES = {
     "JavDB TOP250": "JAVDB TOP250.csv",
-    "JavDB 2024 TOP250": "JAVDB 2024TOP250.csv",
     "JavDB 2025 TOP250": "JAVDB 2025TOP250.csv",
+    "JavDB 2024 TOP250": "JAVDB 2024TOP250.csv",
+    "JavDB 2023 TOP250": "JAVDB 2023TOP250.csv",
     "JavLibray TOP500": "JAVLIBTOP500.csv",
 }
 
@@ -45,7 +46,7 @@ def extract_code(title):
 
 
 def load_csv_codes():
-    codes = {label: set() for label in CSV_FILES}
+    codes = {label: {} for label in CSV_FILES}  # 改为 dict 存储 {code: rank}
     for label, filepath in CSV_FILES.items():
         try:
             with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
@@ -54,10 +55,15 @@ def load_csv_codes():
                 reader = csv.DictReader(f)
                 for row in reader:
                     name = row.get("SUBSTR(name,0,40)", row.get("name", ""))
+                    number = row.get("number", "")
                     if name:
                         code = extract_code(name)
                         if code:
-                            codes[label].add(code)
+                            # 存储排名，如果重复取最小排名
+                            if code not in codes[label]:
+                                codes[label][code] = int(number) if number.isdigit() else 0
+                            else:
+                                codes[label][code] = min(codes[label][code], int(number) if number.isdigit() else 0)
         except Exception as e:
             print(f"Error loading {filepath}: {e}")
     return codes
@@ -139,7 +145,7 @@ def get_movies_with_tags():
 
 def get_movies_by_list(list_name):
     csv_codes = load_csv_codes()
-    codes = csv_codes.get(list_name, set())
+    codes_dict = csv_codes.get(list_name, {})
 
     conn = get_db()
     all_jellyfin_codes = set(
@@ -147,7 +153,7 @@ def get_movies_by_list(list_name):
     )
 
     movies = []
-    for code in sorted(codes):
+    for code, rank in codes_dict.items():
         in_jellyfin = code in all_jellyfin_codes
         title = ""
         if in_jellyfin:
@@ -165,17 +171,20 @@ def get_movies_by_list(list_name):
                 "year": year if in_jellyfin else "",
                 "actors": actors if in_jellyfin else "",
                 "in_jellyfin": in_jellyfin,
+                "rank": rank,
             }
         )
+    # 按排名排序
+    movies.sort(key=lambda x: x["rank"])
     conn.close()
     return movies
 
 
 def get_missing_movies():
     csv_codes = load_csv_codes()
-    javdb_all = set()
-    for label in ["JavDB TOP250", "JavDB 2024 TOP250", "JavDB 2025 TOP250"]:
-        javdb_all.update(csv_codes[label])
+
+    # JavDB 只统计总榜 TOP250
+    javdb_all = csv_codes.get("JavDB TOP250", {})
 
     javlib_codes = csv_codes["JavLibray TOP500"]
 
@@ -183,10 +192,37 @@ def get_missing_movies():
     jellyfin_codes = set(row["code"] for row in conn.execute("SELECT code FROM movies"))
     conn.close()
 
-    javdb_missing = sorted(javdb_all - jellyfin_codes)
-    javlib_missing = sorted(javlib_codes - jellyfin_codes)
+    # 计算未收录
+    javdb_missing = {code: rank for code, rank in javdb_all.items() if code not in jellyfin_codes}
+    javlib_missing = {code: rank for code, rank in javlib_codes.items() if code not in jellyfin_codes}
 
-    return {"javdb": javdb_missing, "javlib": javlib_missing}
+    # 转换为列表并排序
+    javdb_list = []
+    for code, rank in javdb_missing.items():
+        javdb_list.append({
+            "code": code,
+            "rank": rank,
+            "labels": ["JavDB TOP250"]
+        })
+    javdb_list.sort(key=lambda x: x["rank"])
+
+    javlib_list = []
+    for code, rank in javlib_missing.items():
+        javlib_list.append({
+            "code": code,
+            "rank": rank,
+            "labels": ["JavLibray TOP500"]
+        })
+    javlib_list.sort(key=lambda x: x["rank"])
+
+    # 检查重复（在javdb和javlib中都存在）
+    both_missing = set(javdb_missing.keys()) & set(javlib_missing.keys())
+
+    return {
+        "javdb": javdb_list,
+        "javlib": javlib_list,
+        "both": list(both_missing)
+    }
 
 
 @app.route("/")
@@ -204,14 +240,46 @@ def api_movies():
             for m in movies
             if search in m["code"].lower() or search in m["actors"].lower()
         ]
-    return jsonify(movies)
+
+    # 分页
+    page = int(request.args.get("page", 1))
+    page_size = int(request.args.get("page_size", 50))
+    total = len(movies)
+    start = (page - 1) * page_size
+    end = start + page_size
+    paginated = movies[start:end]
+
+    return jsonify({
+        "data": paginated,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size
+    })
 
 
 @app.route("/api/list/<list_name>")
 def api_list(list_name):
     if list_name == "missing":
         return jsonify(get_missing_movies())
-    return jsonify(get_movies_by_list(list_name))
+
+    movies = get_movies_by_list(list_name)
+
+    # 分页
+    page = int(request.args.get("page", 1))
+    page_size = int(request.args.get("page_size", 50))
+    total = len(movies)
+    start = (page - 1) * page_size
+    end = start + page_size
+    paginated = movies[start:end]
+
+    return jsonify({
+        "data": paginated,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size
+    })
 
 
 @app.route("/api/sync", methods=["POST"])
