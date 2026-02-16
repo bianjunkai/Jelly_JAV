@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jellyfin 影片管理</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>🎬 Jellyfin 影片管理</h1>
+            <div class="header-actions">
+                <button @click="sync" :disabled="syncing" class="sync-btn">
+                    <span v-if="syncing">同步中...</span>
+                    <span v-else>🔄 同步 Jellyfin</span>
+                </button>
+                <span class="stats">共 [[ stats.total ]] 部影片</span>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <button 
+                v-for="tab in tabs" 
+                :key="tab.id"
+                :class="['tab', { active: currentTab === tab.id }]"
+                @click="switchTab(tab.id)"
+            >
+                [[ tab.icon ]] [[ tab.name ]]
+            </button>
+        </div>
+
+        <div class="search-bar" v-if="currentTab === 'all' || currentTab.startsWith('actor_')">
+            <input 
+                type="text" 
+                v-model="search" 
+                placeholder="搜索番号或演员..."
+                @input="handleSearch"
+            >
+            <select v-model="sortBy" @change="handleSearch" class="sort-select">
+                <option value="code">按番号排序</option>
+                <option value="year_desc">按年份(新→旧)</option>
+                <option value="year_asc">按年份(旧→新)</option>
+            </select>
+        </div>
+
+        <div class="content">
+            <!-- 全部影片 -->
+            <div v-if="currentTab === 'all'" class="movie-list">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>番号</th>
+                            <th>标题</th>
+                            <th>年份</th>
+                            <th>演员</th>
+                            <th>上榜情况</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="movie in movies" :key="movie.code">
+                            <td class="code">[[ movie.code ]]</td>
+                            <td class="title">[[ movie.title ]]</td>
+                            <td>[[ movie.year ]]</td>
+                            <td class="actors">[[ movie.actors ]]</td>
+                            <td class="tags">
+                                <span 
+                                    v-for="tag in movie.all_tags" 
+                                    :key="tag"
+                                    :class="['tag', movie.tags.includes(tag) ? 'tag-active' : 'tag-inactive']"
+                                >
+                                    [[ getShortTag(tag) ]]
+                                </span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div v-if="movies.length === 0" class="empty">暂无数据</div>
+            </div>
+
+            <!-- 榜单视图 -->
+            <div v-else-if="currentTab.startsWith('javdb') || currentTab === 'javlib'" class="movie-list">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>番号</th>
+                            <th>标题</th>
+                            <th>年份</th>
+                            <th>演员</th>
+                            <th>Jellyfin 收录</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="movie in listMovies" :key="movie.code" :class="{ 'not-in-jellyfin': !movie.in_jellyfin }">
+                            <td class="code">[[ movie.code ]]</td>
+                            <td class="title">[[ movie.title || '-' ]]</td>
+                            <td>[[ movie.year ]]</td>
+                            <td class="actors">[[ movie.actors ]]</td>
+                            <td>
+                                <span :class="['status', movie.in_jellyfin ? 'status-yes' : 'status-no']">
+                                    [[ movie.in_jellyfin ? '✓ 已收录' : '✗ 未收录' ]]
+                                </span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- 未收录 -->
+            <div v-else-if="currentTab === 'missing'" class="missing-view">
+                <div class="missing-section">
+                    <h2>JavDB 未收录 ([[ missing.javdb.length ]])</h2>
+                    <div class="code-list">
+                        <span v-for="code in missing.javdb" :key="code" class="code-item">[[ code ]]</span>
+                    </div>
+                </div>
+                <div class="missing-section">
+                    <h2>JavLibray 未收录 ([[ missing.javlib.length ]])</h2>
+                    <div class="code-list">
+                        <span v-for="code in missing.javlib" :key="code" class="code-item">[[ code ]]</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 演员列表 -->
+            <div v-else-if="currentTab === 'actors'" class="actors-view">
+                <div class="actor-list">
+                    <div 
+                        v-for="actor in actors" 
+                        :key="actor.name" 
+                        class="actor-item"
+                        @click="showActorMovies(actor.name)"
+                    >
+                        <span class="actor-name">[[ actor.name ]]</span>
+                        <span class="actor-count">[[ actor.count ]] 部</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 演员详情 -->
+            <div v-else-if="currentTab.startsWith('actor_')" class="actor-detail">
+                <button class="back-btn" @click="currentTab = 'actors'; loadActors()">← 返回演员列表</button>
+                <h2>[[ currentActorName ]] 的影片 ([[ actorMovies.length ]] 部)</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>番号</th>
+                            <th>标题</th>
+                            <th>年份</th>
+                            <th>演员</th>
+                            <th>上榜情况</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="movie in actorMovies" :key="movie.code">
+                            <td class="code">[[ movie.code ]]</td>
+                            <td class="title">[[ movie.title ]]</td>
+                            <td>[[ movie.year ]]</td>
+                            <td class="actors">[[ movie.actors ]]</td>
+                            <td class="tags">
+                                <span 
+                                    v-for="tag in movie.all_tags" 
+                                    :key="tag"
+                                    :class="['tag', movie.tags.includes(tag) ? 'tag-active' : 'tag-inactive']"
+                                >
+                                    [[ getShortTag(tag) ]]
+                                </span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+
+        const app = createApp({
+            setup() {
+                const currentTab = ref('all');
+                const movies = ref([]);
+                const listMovies = ref([]);
+                const missing = ref({ javdb: [], javlib: [] });
+                const actors = ref([]);
+                const actorMovies = ref([]);
+                const currentActorName = ref('');
+                const search = ref('');
+                const sortBy = ref('code');
+                const syncing = ref(false);
+                const stats = ref({ total: 0 });
+
+                const tabs = [
+                    { id: 'all', name: '全部', icon: '📚' },
+                    { id: 'actors', name: '演员', icon: '👤' },
+                    { id: 'javdb', name: 'JavDB TOP250', icon: '🏆' },
+                    { id: 'javdb_2024', name: 'JavDB 2024', icon: '🏆' },
+                    { id: 'javdb_2025', name: 'JavDB 2025', icon: '🏆' },
+                    { id: 'javlib', name: 'JavLibray TOP500', icon: '🏆' },
+                    { id: 'missing', name: '未收录', icon: '❌' }
+                ];
+
+                const getShortTag = (tag) => {
+                    const map = {
+                        'JavDB TOP250': 'DB',
+                        'JavDB 2024 TOP250': 'DB24',
+                        'JavDB 2025 TOP250': 'DB25',
+                        'JavLibray TOP500': 'JL'
+                    };
+                    return map[tag] || tag;
+                };
+
+                const sortMovies = (list) => {
+                    if (sortBy.value === 'year_desc') {
+                        return [...list].sort((a, b) => (b.year || '').localeCompare(a.year || ''));
+                    } else if (sortBy.value === 'year_asc') {
+                        return [...list].sort((a, b) => (a.year || '').localeCompare(b.year || ''));
+                    }
+                    return list;
+                };
+
+                const loadMovies = async () => {
+                    const res = await axios.get('/api/movies', { params: { search: search.value } });
+                    movies.value = sortMovies(res.data);
+                };
+
+                const handleSearch = () => {
+                    if (currentTab.value === 'all') {
+                        loadMovies();
+                    } else if (currentTab.value.startsWith('actor_')) {
+                        sortActorMovies();
+                    }
+                };
+
+                const sortActorMovies = () => {
+                    actorMovies.value = sortMovies(actorMovies.value);
+                };
+
+                const loadList = async (listName) => {
+                    let apiName = listName;
+                    if (listName === 'javdb') apiName = 'JavDB TOP250';
+                    if (listName === 'javdb_2024') apiName = 'JavDB 2024 TOP250';
+                    if (listName === 'javdb_2025') apiName = 'JavDB 2025 TOP250';
+                    if (listName === 'javlib') apiName = 'JavLibray TOP500';
+                    
+                    const res = await axios.get(`/api/list/${encodeURIComponent(apiName)}`);
+                    listMovies.value = res.data;
+                };
+
+                const loadMissing = async () => {
+                    const res = await axios.get('/api/list/missing');
+                    missing.value = res.data;
+                };
+
+                const loadActors = async () => {
+                    const res = await axios.get('/api/actors');
+                    actors.value = res.data;
+                };
+
+                const showActorMovies = async (actorName) => {
+                    currentActorName.value = actorName;
+                    const res = await axios.get(`/api/actor/${encodeURIComponent(actorName)}`);
+                    actorMovies.value = sortMovies(res.data);
+                    currentTab.value = 'actor_' + encodeURIComponent(actorName);
+                };
+
+                const loadStats = async () => {
+                    const res = await axios.get('/api/stats');
+                    stats.value = res.data;
+                };
+
+                const sync = async () => {
+                    syncing.value = true;
+                    try {
+                        await axios.post('/api/sync');
+                        await loadMovies();
+                        await loadStats();
+                        await switchTab(currentTab.value);
+                    } finally {
+                        syncing.value = false;
+                    }
+                };
+
+                const switchTab = async (tabId) => {
+                    currentTab.value = tabId;
+                    if (tabId === 'all') {
+                        await loadMovies();
+                    } else if (tabId === 'missing') {
+                        await loadMissing();
+                    } else if (tabId === 'actors') {
+                        await loadActors();
+                    } else if (tabId.startsWith('actor_')) {
+                        const actorName = decodeURIComponent(tabId.substring(7));
+                        currentActorName.value = actorName;
+                        const res = await axios.get(`/api/actor/${encodeURIComponent(actorName)}`);
+                        actorMovies.value = sortMovies(res.data);
+                    } else {
+                        await loadList(tabId);
+                    }
+                };
+
+                onMounted(async () => {
+                    await loadStats();
+                    await loadMovies();
+                });
+
+                return {
+                    currentTab,
+                    movies,
+                    listMovies,
+                    missing,
+                    actors,
+                    actorMovies,
+                    currentActorName,
+                    search,
+                    sortBy,
+                    syncing,
+                    stats,
+                    tabs,
+                    getShortTag,
+                    loadMovies,
+                    handleSearch,
+                    loadActors,
+                    showActorMovies,
+                    sync,
+                    switchTab
+                };
+            }
+        });
+        
+        app.config.compilerOptions.delimiters = ['[[', ']]'];
+        app.mount('#app');
+    </script>
+</body>
+</html>
