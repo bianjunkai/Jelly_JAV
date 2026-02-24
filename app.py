@@ -4,12 +4,29 @@ import requests
 import re
 import os
 import xml.etree.ElementTree as ET
+import threading
+import time
+import queue
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request, Response
-from config import JELLYFIN_URL, JELLYFIN_API_KEY, RSSHUB_URL, JAVBUS_DOMAIN, JAVBUS_LANGUAGE, AUTO_REFRESH_ON_STARTUP
+from config import JELLYFIN_URL, JELLYFIN_API_KEY, RSSHUB_URL, JAVBUS_DOMAIN, JAVBUS_LANGUAGE, AUTO_REFRESH_ON_STARTUP, RSS_REQUEST_DELAY, RSS_MAX_RETRIES, RSS_RETRY_BASE_DELAY
 
 app = Flask(__name__)
 DB_PATH = "data.db"
+
+# RSS Rate limiting configuration (loaded from config.py)
+# RSS_REQUEST_DELAY = 2.0  # Delay between requests in seconds
+# RSS_MAX_RETRIES = 3      # Max retries on 429
+# RSS_RETRY_BASE_DELAY = 5  # Base delay for exponential backoff (seconds)
+
+# Global RSS state
+rss_update_state = {
+    "is_running": False,
+    "is_complete": False,
+    "results": [],
+    "start_time": None,
+    "end_time": None,
+}
 
 CSV_FILES = {
     "JavDB TOP250": "JAVDB TOP250.csv",
@@ -261,22 +278,43 @@ def build_rss_url(javbus_id):
     return url
 
 
-def fetch_rss(actor_id):
-    """抓取指定演员的 RSS 订阅"""
+def fetch_rss(actor_id, retry_count=0):
+    """抓取指定演员的 RSS 订阅，带有 429/503 防护机制"""
     conn = get_db()
     actor = conn.execute("SELECT id, name, javbus_id FROM actors WHERE id = ?", (actor_id,)).fetchone()
 
     if not actor or not actor["javbus_id"]:
         conn.close()
-        return {"success": False, "error": "Actor not found or no javbus_id"}
+        return {"success": False, "error": "Actor not found or no javbus_id", "actor_id": actor_id}
 
     rss_url = build_rss_url(actor["javbus_id"])
     if not rss_url:
         conn.close()
-        return {"success": False, "error": "Invalid RSS URL"}
+        return {"success": False, "error": "Invalid RSS URL", "actor_id": actor_id}
 
     try:
         resp = requests.get(rss_url, timeout=30)
+
+        # Handle HTTP errors that should trigger retry
+        retryable_errors = {
+            429: "Rate limited (429)",
+            503: "Service unavailable (503)",
+            502: "Bad gateway (502)",
+            504: "Gateway timeout (504)"
+        }
+
+        if resp.status_code in retryable_errors:
+            if retry_count < RSS_MAX_RETRIES:
+                delay = RSS_RETRY_BASE_DELAY * (2 ** retry_count)  # 5, 10, 20 seconds
+                error_name = retryable_errors[resp.status_code]
+                print(f"{error_name} for actor {actor_id}, retrying in {delay}s (attempt {retry_count + 1}/{RSS_MAX_RETRIES})")
+                conn.close()
+                time.sleep(delay)
+                return fetch_rss(actor_id, retry_count + 1)
+            else:
+                conn.close()
+                return {"success": False, "error": f"{retryable_errors[resp.status_code]} - max retries exceeded", "actor_id": actor_id, "retry_count": retry_count}
+
         resp.raise_for_status()
 
         # 解析 RSS XML
@@ -323,11 +361,78 @@ def fetch_rss(actor_id):
         conn.commit()
         conn.close()
 
-        return {"success": True, "items_added": items_added}
-    except Exception as e:
+        return {"success": True, "items_added": items_added, "actor_id": actor_id}
+    except requests.exceptions.RequestException as e:
+        # 网络错误也尝试重试
+        if retry_count < RSS_MAX_RETRIES:
+            delay = RSS_RETRY_BASE_DELAY * (2 ** retry_count)
+            print(f"Network error for actor {actor_id}: {e}, retrying in {delay}s (attempt {retry_count + 1}/{RSS_MAX_RETRIES})")
+            time.sleep(delay)
+            return fetch_rss(actor_id, retry_count + 1)
         conn.close()
         print(f"RSS fetch error for actor {actor_id}: {e}")
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Network error: {str(e)}", "actor_id": actor_id}
+    except Exception as e:
+        # 其他错误也尝试重试
+        if retry_count < RSS_MAX_RETRIES:
+            delay = RSS_RETRY_BASE_DELAY * (2 ** retry_count)
+            print(f"Error for actor {actor_id}: {e}, retrying in {delay}s (attempt {retry_count + 1}/{RSS_MAX_RETRIES})")
+            time.sleep(delay)
+            return fetch_rss(actor_id, retry_count + 1)
+        conn.close()
+        print(f"RSS fetch error for actor {actor_id}: {e}")
+        return {"success": False, "error": str(e), "actor_id": actor_id}
+
+
+def fetch_all_rss_background():
+    """后台抓取所有已配置 JAVBus ID 的演员 RSS（在后台线程中运行）"""
+    global rss_update_state
+
+    rss_update_state["is_running"] = True
+    rss_update_state["is_complete"] = False
+    rss_update_state["start_time"] = datetime.now().isoformat()
+    rss_update_state["results"] = []
+
+    conn = get_db()
+    actors = conn.execute("SELECT id, name, javbus_id FROM actors WHERE javbus_id IS NOT NULL AND javbus_id != ''").fetchall()
+    conn.close()
+
+    total_actors = len(actors)
+    success_count = 0
+    fail_count = 0
+
+    for idx, actor in enumerate(actors):
+        # Add delay between requests (skip first request)
+        if idx > 0:
+            time.sleep(RSS_REQUEST_DELAY)
+
+        result = fetch_rss(actor["id"])
+        is_success = result.get("success", False)
+
+        if is_success:
+            success_count += 1
+        else:
+            fail_count += 1
+
+        rss_update_state["results"].append({
+            "actor_id": actor["id"],
+            "actor_name": actor["name"],
+            "success": is_success,
+            "items_added": result.get("items_added", 0),
+            "error": result.get("error", ""),
+            "retry_count": result.get("retry_count", 0)
+        })
+
+    rss_update_state["is_running"] = False
+    rss_update_state["is_complete"] = True
+    rss_update_state["end_time"] = datetime.now().isoformat()
+    rss_update_state["summary"] = {
+        "total": total_actors,
+        "success": success_count,
+        "fail": fail_count
+    }
+
+    print(f"RSS background fetch completed: {success_count}/{total_actors} actors updated, {fail_count} failed")
 
 
 def fetch_all_rss():
@@ -963,7 +1068,30 @@ def api_rss_items_watch():
 
 @app.route("/api/rss/refresh", methods=["POST"])
 def api_rss_refresh():
-    """手动刷新 RSS（全部演员）"""
+    """手动刷新 RSS（后台运行）"""
+    global rss_update_state
+
+    # 如果已经在运行，返回当前状态
+    if rss_update_state["is_running"]:
+        return jsonify({
+            "success": False,
+            "message": "RSS refresh is already running",
+            "is_running": True
+        })
+
+    # 启动后台线程
+    rss_thread = threading.Thread(target=fetch_all_rss_background, daemon=True)
+    rss_thread.start()
+
+    return jsonify({
+        "success": True,
+        "message": "RSS refresh started in background"
+    })
+
+
+@app.route("/api/rss/refresh/sync", methods=["POST"])
+def api_rss_refresh_sync():
+    """手动刷新 RSS（同步阻塞模式，不推荐用于大量演员）"""
     results = fetch_all_rss()
     return jsonify({"success": True, "results": results})
 
@@ -973,6 +1101,19 @@ def api_rss_refresh_actor(actor_id):
     """刷新单个演员的 RSS"""
     result = fetch_rss(actor_id)
     return jsonify(result)
+
+
+@app.route("/api/rss/status", methods=["GET"])
+def api_rss_status():
+    """获取 RSS 更新状态"""
+    return jsonify({
+        "is_running": rss_update_state["is_running"],
+        "is_complete": rss_update_state["is_complete"],
+        "start_time": rss_update_state["start_time"],
+        "end_time": rss_update_state["end_time"],
+        "summary": rss_update_state.get("summary", None),
+        "results": rss_update_state["results"][-50:] if rss_update_state["results"] else []  # Return last 50 results
+    })
 
 
 if __name__ == "__main__":
@@ -986,11 +1127,12 @@ if __name__ == "__main__":
     actor_count = import_actors_from_jellyfin()
     print(f"Imported {actor_count} new actors")
 
-    # 自动抓取 RSS（如果启用）
+    # 自动抓取 RSS（在后台运行，不阻塞网页启动）
     if AUTO_REFRESH_ON_STARTUP:
-        print("Fetching RSS feeds for all actors with JAVBus ID...")
-        results = fetch_all_rss()
-        success_count = sum(1 for r in results if r["result"].get("success"))
-        print(f"RSS fetch completed: {success_count}/{len(results)} actors updated")
+        print("Starting background RSS fetch (will not block web access)...")
+        rss_thread = threading.Thread(target=fetch_all_rss_background, daemon=True)
+        rss_thread.start()
 
+    # 启动 Flask 应用
+    print("Starting web server on http://0.0.0.0:5002")
     app.run(host="0.0.0.0", port=5002, debug=False, use_reloader=False)

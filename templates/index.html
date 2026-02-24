@@ -10,10 +10,64 @@
 </head>
 <body>
     <div id="app">
+        <!-- RSS Notification Toast -->
+        <div v-if="rssNotification.show" class="rss-notification" @click="showRssDetails">
+            <div class="rss-notification-icon">📡</div>
+            <div class="rss-notification-content">
+                <div class="rss-notification-title">RSS 订阅完成</div>
+                <div class="rss-notification-summary">
+                    成功: [[ rssNotification.success ]] | 失败: [[ rssNotification.fail ]]
+                </div>
+            </div>
+            <button class="rss-notification-close" @click.stop="dismissRssNotification">×</button>
+        </div>
+
+        <!-- RSS Details Modal -->
+        <div v-if="rssDetailsModal.show" class="modal-overlay" @click="rssDetailsModal.show = false">
+            <div class="modal-content rss-details-modal" @click.stop>
+                <div class="modal-header">
+                    <h2>RSS 订阅详情</h2>
+                    <button class="modal-close" @click="rssDetailsModal.show = false">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="rss-details-summary">
+                        <div class="rss-summary-item success">
+                            <span class="rss-summary-count">[[ rssDetailsModal.summary?.success || 0 ]]</span>
+                            <span class="rss-summary-label">成功</span>
+                        </div>
+                        <div class="rss-summary-item fail">
+                            <span class="rss-summary-count">[[ rssDetailsModal.summary?.fail || 0 ]]</span>
+                            <span class="rss-summary-label">失败</span>
+                        </div>
+                        <div class="rss-summary-item total">
+                            <span class="rss-summary-count">[[ rssDetailsModal.summary?.total || 0 ]]</span>
+                            <span class="rss-summary-label">总计</span>
+                        </div>
+                    </div>
+                    <div v-if="rssDetailsModal.results && rssDetailsModal.results.length > 0" class="rss-details-list">
+                        <div class="rss-details-section">
+                            <h3>失败详情</h3>
+                            <div v-for="item in rssDetailsModal.results.filter(r => !r.success)" :key="item.actor_id" class="rss-detail-item fail-item">
+                                <span class="rss-detail-name">[[ item.actor_name ]]</span>
+                                <span class="rss-detail-error">[[ item.error ]]</span>
+                            </div>
+                            <div v-if="rssDetailsModal.results.filter(r => !r.success).length === 0" class="rss-detail-empty">
+                                所有演员更新成功！
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Header -->
         <header>
             <h1>Jellyfin Movies</h1>
             <div class="header-actions">
+                <div v-if="rssRefreshing" class="rss-status-indicator">
+                    <span class="rss-spinner"></span>
+                    <span>RSS 更新中...</span>
+                </div>
                 <button @click="sync" :disabled="syncing" class="sync-btn">
                     <span v-if="syncing">同步中...</span>
                     <span v-else>🔄 同步</span>
@@ -475,6 +529,19 @@
                 const rssItemsByActor = ref({});
                 const rssViewMode = ref('all');
                 const rssRefreshing = ref(false);
+
+                // RSS Notification state
+                const rssNotification = ref({
+                    show: false,
+                    success: 0,
+                    fail: 0
+                });
+                const rssDetailsModal = ref({
+                    show: false,
+                    summary: null,
+                    results: []
+                });
+                let rssStatusPollInterval = null;
                 const rssActors = ref({});  // {name: {javbus_id, id}}
                 const currentRssActorId = ref(null);
                 const collapsedActors = ref({});  // Track collapsed state for each actor
@@ -704,11 +771,74 @@
                 const refreshRss = async () => {
                     rssRefreshing.value = true;
                     try {
-                        await axios.post('/api/rss/refresh');
-                        await loadRssItems();
-                    } finally {
+                        // Use background refresh (non-blocking)
+                        const res = await axios.post('/api/rss/refresh');
+                        if (res.data.success) {
+                            // Start polling for status
+                            startRssStatusPolling();
+                        } else if (res.data.is_running) {
+                            // Already running, just poll status
+                            startRssStatusPolling();
+                        }
+                    } catch (e) {
+                        console.error('RSS refresh error:', e);
                         rssRefreshing.value = false;
                     }
+                };
+
+                // Poll RSS status until complete
+                const startRssStatusPolling = () => {
+                    if (rssStatusPollInterval) {
+                        clearInterval(rssStatusPollInterval);
+                    }
+                    rssStatusPollInterval = setInterval(async () => {
+                        try {
+                            const res = await axios.get('/api/rss/status');
+                            if (res.data.is_complete) {
+                                clearInterval(rssStatusPollInterval);
+                                rssStatusPollInterval = null;
+                                rssRefreshing.value = false;
+
+                                // Show notification
+                                if (res.data.summary) {
+                                    rssNotification.value = {
+                                        show: true,
+                                        success: res.data.summary.success,
+                                        fail: res.data.summary.fail
+                                    };
+                                    // Auto-dismiss after 10 seconds
+                                    setTimeout(() => {
+                                        rssNotification.value.show = false;
+                                    }, 10000);
+                                }
+
+                                // Reload RSS items
+                                await loadRssItems();
+                            }
+                        } catch (e) {
+                            console.error('RSS status poll error:', e);
+                        }
+                    }, 2000);
+                };
+
+                // Show RSS details modal
+                const showRssDetails = async () => {
+                    rssNotification.value.show = false;
+                    try {
+                        const res = await axios.get('/api/rss/status');
+                        rssDetailsModal.value = {
+                            show: true,
+                            summary: res.data.summary,
+                            results: res.data.results
+                        };
+                    } catch (e) {
+                        console.error('Failed to load RSS details:', e);
+                    }
+                };
+
+                // Dismiss RSS notification
+                const dismissRssNotification = () => {
+                    rssNotification.value.show = false;
                 };
 
                 const toggleWatch = async (itemId, isWatched) => {
@@ -837,6 +967,31 @@
                 onMounted(async () => {
                     await loadStats();
                     await switchTab('all');
+
+                    // Check if RSS update is running or recently completed
+                    try {
+                        const statusRes = await axios.get('/api/rss/status');
+                        if (statusRes.data.is_running) {
+                            // Already running, start polling
+                            rssRefreshing.value = true;
+                            startRssStatusPolling();
+                        } else if (statusRes.data.is_complete && statusRes.data.summary) {
+                            // Recently completed, show notification if there are results
+                            if (statusRes.data.summary.total > 0) {
+                                rssNotification.value = {
+                                    show: true,
+                                    success: statusRes.data.summary.success,
+                                    fail: statusRes.data.summary.fail
+                                };
+                                // Auto-dismiss after 8 seconds
+                                setTimeout(() => {
+                                    rssNotification.value.show = false;
+                                }, 8000);
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Failed to check RSS status:', e);
+                    }
                 });
 
                 // Watch for RSS view mode changes
@@ -869,6 +1024,8 @@
                     rssItemsByActor,
                     rssViewMode,
                     rssRefreshing,
+                    rssNotification,
+                    rssDetailsModal,
                     rssActors,
                     currentRssActorId,
                     collapsedActors,
@@ -892,6 +1049,8 @@
                     handlePosterError,
                     loadRssItems,
                     refreshRss,
+                    showRssDetails,
+                    dismissRssNotification,
                     toggleWatch,
                     markAllWatched,
                     markActorWatched,

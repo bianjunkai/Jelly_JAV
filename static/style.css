@@ -52,6 +52,33 @@ header h1::before {
     gap: 20px;
 }
 
+.rss-status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #4ade80;
+    font-size: 13px;
+    background: rgba(74, 222, 128, 0.1);
+    padding: 8px 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+.rss-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(74, 222, 128, 0.3);
+    border-top-color: #4ade80;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .sync-btn {
     background: #e50914;
     color: white;
@@ -1280,4 +1307,217 @@ header h1::before {
     font-size: 12px;
     font-weight: 600;
     margin: 4px 0;
+}
+
+/* RSS Notification Toast */
+.rss-notification {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 1px solid #4ade80;
+    border-radius: 12px;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    z-index: 1000;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    animation: slideIn 0.3s ease-out;
+    max-width: 320px;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(100px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.rss-notification-icon {
+    font-size: 24px;
+}
+
+.rss-notification-content {
+    flex: 1;
+}
+
+.rss-notification-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #4ade80;
+    margin-bottom: 4px;
+}
+
+.rss-notification-summary {
+    font-size: 12px;
+    color: #9ca3af;
+}
+
+.rss-notification-close {
+    background: none;
+    border: none;
+    color: #6b7280;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.rss-notification-close:hover {
+    color: #fff;
+}
+
+/* RSS Details Modal */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    backdrop-filter: blur(4px);
+}
+
+.modal-content {
+    background: #1a1a2e;
+    border-radius: 16px;
+    max-width: 90%;
+    max-height: 80vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 16px 64px rgba(0, 0, 0, 0.5);
+}
+
+.rss-details-modal {
+    width: 500px;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #374151;
+}
+
+.modal-header h2 {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: #9ca3af;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: #fff;
+}
+
+.modal-body {
+    padding: 24px;
+    overflow-y: auto;
+}
+
+.rss-details-summary {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.rss-summary-item {
+    flex: 1;
+    background: #0d0d0d;
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+}
+
+.rss-summary-item.success {
+    border: 1px solid #4ade80;
+}
+
+.rss-summary-item.fail {
+    border: 1px solid #f87171;
+}
+
+.rss-summary-item.total {
+    border: 1px solid #60a5fa;
+}
+
+.rss-summary-count {
+    display: block;
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.rss-summary-item.success .rss-summary-count {
+    color: #4ade80;
+}
+
+.rss-summary-item.fail .rss-summary-count {
+    color: #f87171;
+}
+
+.rss-summary-item.total .rss-summary-count {
+    color: #60a5fa;
+}
+
+.rss-summary-label {
+    font-size: 12px;
+    color: #9ca3af;
+}
+
+.rss-details-list h3 {
+    font-size: 14px;
+    color: #9ca3af;
+    margin-bottom: 12px;
+}
+
+.rss-detail-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: #0d0d0d;
+    border-radius: 8px;
+    margin-bottom: 8px;
+}
+
+.rss-detail-item.fail-item {
+    border-left: 3px solid #f87171;
+}
+
+.rss-detail-name {
+    font-size: 14px;
+    color: #fff;
+}
+
+.rss-detail-error {
+    font-size: 12px;
+    color: #f87171;
+}
+
+.rss-detail-empty {
+    text-align: center;
+    color: #4ade80;
+    padding: 20px;
+    font-size: 14px;
 }
