@@ -394,6 +394,15 @@ header h1::before {
     color: #666;
 }
 
+.movie-actors {
+    font-size: 11px;
+    color: #9ca3af;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
 .movie-tags {
     display: flex;
     gap: 4px;

@@ -152,6 +152,7 @@
                             <div class="movie-code">[[ movie.code ]]</div>
                             <div class="movie-title" :title="movie.title">[[ movie.title ]]</div>
                             <div class="movie-year">[[ movie.year ]]</div>
+                            <div class="movie-actors" v-if="movie.actors">[[ movie.actors ]]</div>
                             <div class="movie-score" v-if="movie.score">[[ movie.score ]]分</div>
                             <div class="movie-tags">
                                 <span
