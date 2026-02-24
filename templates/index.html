@@ -10,23 +10,26 @@
 </head>
 <body>
     <div id="app">
-        <!-- RSS Notification Toast -->
-        <div v-if="rssNotification.show" class="rss-notification" @click="showRssDetails">
-            <div class="rss-notification-icon">📡</div>
+        <!-- RSS/JavDB Notification Toast -->
+        <div v-if="rssNotification.show" class="rss-notification" :class="rssNotification.type === 'javdb' ? 'javdb-notification' : ''" @click="showNotificationDetails">
+            <div class="rss-notification-icon">[[ rssNotification.type === 'javdb' ? '⭐' : '📡' ]]</div>
             <div class="rss-notification-content">
-                <div class="rss-notification-title">RSS 订阅完成</div>
-                <div class="rss-notification-summary">
+                <div class="rss-notification-title">[[ rssNotification.type === 'javdb' ? 'JavDB 评分获取' : 'RSS 订阅完成' ]]</div>
+                <div class="rss-notification-summary" v-if="rssNotification.message">
+                    [[ rssNotification.message ]]
+                </div>
+                <div class="rss-notification-summary" v-else>
                     成功: [[ rssNotification.success ]] | 失败: [[ rssNotification.fail ]]
                 </div>
             </div>
             <button class="rss-notification-close" @click.stop="dismissRssNotification">×</button>
         </div>
 
-        <!-- RSS Details Modal -->
+        <!-- RSS/JavDB Details Modal -->
         <div v-if="rssDetailsModal.show" class="modal-overlay" @click="rssDetailsModal.show = false">
             <div class="modal-content rss-details-modal" @click.stop>
                 <div class="modal-header">
-                    <h2>RSS 订阅详情</h2>
+                    <h2>[[ rssDetailsModal.title || 'RSS 订阅详情' ]]</h2>
                     <button class="modal-close" @click="rssDetailsModal.show = false">×</button>
                 </div>
                 <div class="modal-body">
@@ -45,7 +48,17 @@
                         </div>
                     </div>
                     <div v-if="rssDetailsModal.results && rssDetailsModal.results.length > 0" class="rss-details-list">
-                        <div class="rss-details-section">
+                        <!-- JavDB Results -->
+                        <div v-if="rssDetailsModal.title && rssDetailsModal.title.includes('JavDB')" class="rss-details-section">
+                            <h3>评分结果</h3>
+                            <div v-for="item in rssDetailsModal.results.slice(-20).reverse()" :key="item.code || item.task_id" class="rss-detail-item" :class="item.status === 'success' ? 'success-item' : 'fail-item'">
+                                <span class="rss-detail-name">[[ item.code ]]</span>
+                                <span v-if="item.score" class="rss-detail-score">⭐ [[ item.score ]]/5</span>
+                                <span v-else class="rss-detail-error">[[ item.status === 'not_found' ? '未找到' : (item.error || '失败') ]]</span>
+                            </div>
+                        </div>
+                        <!-- RSS Results -->
+                        <div v-else class="rss-details-section">
                             <h3>失败详情</h3>
                             <div v-for="item in rssDetailsModal.results.filter(r => !r.success)" :key="item.actor_id" class="rss-detail-item fail-item">
                                 <span class="rss-detail-name">[[ item.actor_name ]]</span>
@@ -160,6 +173,11 @@
                             <div class="movie-score" v-if="movie.score">[[ movie.score ]]分</div>
                             <div class="movie-javdb-score" v-if="movie.javdb_score" :class="getJavdbScoreClass(movie.javdb_score)">
                                 ⭐ [[ movie.javdb_score ]]/5
+                            </div>
+                            <div v-else>
+                                <button class="fetch-javdb-btn" @click="fetchJavdbScore(movie)" :disabled="movie.fetching">
+                                    [[ movie.fetching ? '获取中...' : '获取JavDB评分' ]]
+                                </button>
                             </div>
                             <div class="movie-tags">
                                 <span
@@ -372,6 +390,14 @@
                     >
                         RSS订阅 <span v-if="actorRssUnwatched > 0" class="unwatched-badge">[[ actorRssUnwatched ]]</span>
                     </button>
+                    <button
+                        v-if="actorSubTab === 'movies'"
+                        class="actor-javdb-btn"
+                        @click="fetchActorJavdbScores"
+                        :disabled="javdbFetching"
+                    >
+                        [[ javdbFetching ? '获取中...' : '⭐ 获取JavDB评分' ]]
+                    </button>
                 </div>
 
                 <!-- Movies Tab -->
@@ -392,6 +418,9 @@
                                 <div class="movie-javdb-score" v-if="movie.javdb_score" :class="getJavdbScoreClass(movie.javdb_score)">
                                     ⭐ [[ movie.javdb_score ]]/5
                                 </div>
+                                <button v-else class="fetch-javdb-btn" @click="fetchJavdbScore(movie)" :disabled="movie.fetching">
+                                    [[ movie.fetching ? '获取中...' : '获取JavDB评分' ]]
+                                </button>
                                 <div class="movie-tags">
                                     <span
                                         v-for="tag in movie.all_tags"
@@ -545,8 +574,10 @@
                 // RSS Notification state
                 const rssNotification = ref({
                     show: false,
+                    type: 'rss',  // 'rss' or 'javdb'
                     success: 0,
-                    fail: 0
+                    fail: 0,
+                    message: ''
                 });
                 const rssDetailsModal = ref({
                     show: false,
@@ -636,7 +667,9 @@
                             page_size: pageSize.value
                         }
                     });
-                    movies.value = sortMovies(res.data.data);
+                    // Add fetching flag to each movie
+                    const data = res.data.data.map(m => ({ ...m, fetching: false }));
+                    movies.value = sortMovies(data);
                     totalPages.value = res.data.total_pages;
                     totalItems.value = res.data.total;
                 };
@@ -686,7 +719,8 @@
                 const showActorMovies = async (actorName) => {
                     currentActorName.value = actorName;
                     const res = await axios.get(`/api/actor/${encodeURIComponent(actorName)}`);
-                    actorMovies.value = sortMovies(res.data);
+                    const data = res.data.map(m => ({ ...m, fetching: false }));
+                    actorMovies.value = sortMovies(data);
                     currentTab.value = 'actor_' + encodeURIComponent(actorName);
                 };
 
@@ -700,7 +734,8 @@
 
                     // Load actor movies
                     const moviesRes = await axios.get(`/api/actor/${encodeURIComponent(actorName)}`);
-                    actorMovies.value = sortMovies(moviesRes.data);
+                    const data = moviesRes.data.map(m => ({ ...m, fetching: false }));
+                    actorMovies.value = sortMovies(data);
 
                     currentTab.value = 'actor_' + encodeURIComponent(actorName);
                 };
@@ -730,6 +765,33 @@
                         }
                     } finally {
                         rssRefreshing.value = false;
+                    }
+                };
+
+                const fetchActorJavdbScores = async () => {
+                    if (!actorDetail.value.name) return;
+
+                    javdbFetching.value = true;
+                    try {
+                        const res = await axios.post(`/api/actor/${encodeURIComponent(actorDetail.value.name)}/fetch_javdb_scores`);
+                        if (res.data.success) {
+                            // Show notification
+                            rssNotification.value = {
+                                show: true,
+                                type: 'javdb',
+                                success: res.data.success_count,
+                                fail: res.data.fail_count,
+                                message: `JavDB评分获取完成！成功: ${res.data.success_count}, 失败: ${res.data.fail_count}`
+                            };
+                            // Reload actor movies
+                            const moviesRes = await axios.get(`/api/actor/${encodeURIComponent(actorDetail.value.name)}`);
+                            const data = moviesRes.data.map(m => ({ ...m, fetching: false }));
+                            actorMovies.value = sortMovies(data);
+                        }
+                    } catch (e) {
+                        console.error('获取JavDB评分失败:', e);
+                    } finally {
+                        javdbFetching.value = false;
                     }
                 };
 
@@ -848,6 +910,28 @@
                     }
                 };
 
+                // Show notification details (RSS or JavDB)
+                const showNotificationDetails = async () => {
+                    if (rssNotification.value.type === 'javdb') {
+                        // Show JavDB details
+                        rssNotification.value.show = false;
+                        try {
+                            const res = await axios.get('/api/javdb_task_status');
+                            rssDetailsModal.value = {
+                                show: true,
+                                title: 'JavDB 评分详情',
+                                summary: res.data.summary,
+                                results: res.data.results || []
+                            };
+                        } catch (e) {
+                            console.error('Failed to load JavDB details:', e);
+                        }
+                    } else {
+                        // Show RSS details
+                        showRssDetails();
+                    }
+                };
+
                 // Dismiss RSS notification
                 const dismissRssNotification = () => {
                     rssNotification.value.show = false;
@@ -935,6 +1019,86 @@
                     return 'score-low';
                 };
 
+                const fetchJavdbScore = async (movie) => {
+                    console.log('Fetching JavDB score for:', movie.code);
+                    movie.fetching = true;
+                    javdbFetching.value = true;
+                    try {
+                        const encodedCode = encodeURIComponent(movie.code);
+                        console.log('API URL:', `/api/test_javdb/${encodedCode}`);
+                        const res = await axios.get(`/api/test_javdb/${encodedCode}`);
+                        console.log('API Response:', res.data);
+                        // Start polling for status
+                        pollJavdbSingleStatus(movie);
+                    } catch (e) {
+                        console.error('获取JavDB评分失败:', e);
+                        javdbFetching.value = false;
+                        movie.fetching = false;
+                    }
+                };
+
+                const pollJavdbSingleStatus = (movie) => {
+                    let pollCount = 0;
+                    const pollInterval = setInterval(async () => {
+                        pollCount++;
+                        try {
+                            const res = await axios.get('/api/javdb_task_status');
+                            console.log('Poll', pollCount, 'Movie code:', movie.code, 'Results:', res.data.results);
+                            const results = res.data.results || [];
+                            // Find the latest result for this movie code
+                            const myResult = results.reverse().find(r => r.code === movie.code);
+                            console.log('Looking for:', movie.code, 'Found result:', myResult);
+
+                            if (myResult && myResult.status !== 'running') {
+                                clearInterval(pollInterval);
+                                javdbFetching.value = false;
+                                movie.fetching = false;
+
+                                if (myResult.status === 'success') {
+                                    movie.javdb_score = myResult.score;
+                                    // Show JavDB notification
+                                    rssNotification.value = {
+                                        show: true,
+                                        type: 'javdb',
+                                        success: 1,
+                                        fail: 0,
+                                        message: `JavDB评分获取成功: ${movie.code} - ${myResult.score}/5`
+                                    };
+                                } else if (myResult.status === 'not_found') {
+                                    rssNotification.value = {
+                                        show: true,
+                                        type: 'javdb',
+                                        success: 0,
+                                        fail: 1,
+                                        message: `未找到影片: ${movie.code}`
+                                    };
+                                } else {
+                                    rssNotification.value = {
+                                        show: true,
+                                        type: 'javdb',
+                                        success: 0,
+                                        fail: 1,
+                                        message: `获取失败: ${movie.code}`
+                                    };
+                                }
+                                // Reload to update all movies
+                                await loadMovies();
+                            } else if (pollCount > 10) {
+                                // Timeout after 10 seconds
+                                clearInterval(pollInterval);
+                                javdbFetching.value = false;
+                                movie.fetching = false;
+                                console.log('Poll timeout for:', movie.code);
+                            }
+                        } catch (e) {
+                            console.error('JavDB status poll error:', e);
+                            clearInterval(pollInterval);
+                            javdbFetching.value = false;
+                            movie.fetching = false;
+                        }
+                    }, 1000);
+                };
+
                 const fetchJavdbScores = async () => {
                     javdbFetching.value = true;
                     try {
@@ -958,7 +1122,13 @@
                                 javdbFetching.value = false;
                                 await loadMovies();
                                 if (res.data.summary) {
-                                    alert(`JavDB 评分获取完成！成功: ${res.data.summary.success}, 失败: ${res.data.summary.fail}`);
+                                    rssNotification.value = {
+                                        show: true,
+                                        type: 'javdb',
+                                        success: res.data.summary.success,
+                                        fail: res.data.summary.fail,
+                                        message: `JavDB 评分获取完成！成功: ${res.data.summary.success}, 失败: ${res.data.summary.fail}`
+                                    };
                                 }
                             }
                         } catch (e) {
@@ -987,7 +1157,8 @@
                         actorDetail.value = detailRes.data;
                         // Load actor movies
                         const res = await axios.get(`/api/actor/${encodeURIComponent(actorName)}`);
-                        actorMovies.value = sortMovies(res.data);
+                        const data = res.data.map(m => ({ ...m, fetching: false }));
+                        actorMovies.value = sortMovies(data);
                         actorSubTab.value = 'movies';
                     } else {
                         await loadList(tabId);
@@ -1095,6 +1266,7 @@
                     sync,
                     calcScores,
                     getJavdbScoreClass,
+                    fetchJavdbScore,
                     fetchJavdbScores,
                     switchTab,
                     goToPage,
@@ -1103,6 +1275,7 @@
                     loadRssItems,
                     refreshRss,
                     showRssDetails,
+                    showNotificationDetails,
                     dismissRssNotification,
                     toggleWatch,
                     markAllWatched,
@@ -1112,6 +1285,7 @@
                     showActorRss,
                     saveActorJavbusId,
                     refreshActorRss,
+                    fetchActorJavdbScores,
                     loadActorRssItems,
                     formatDate,
                     handleActorAvatarError

@@ -9,7 +9,7 @@ import time
 import queue
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request, Response
-from config import JELLYFIN_URL, JELLYFIN_API_KEY, RSSHUB_URL, JAVBUS_DOMAIN, JAVBUS_LANGUAGE, AUTO_REFRESH_ON_STARTUP, RSS_REQUEST_DELAY, RSS_MAX_RETRIES, RSS_RETRY_BASE_DELAY
+from config import JELLYFIN_URL, JELLYFIN_API_KEY, RSSHUB_URL, JAVBUS_DOMAIN, JAVBUS_LANGUAGE, AUTO_REFRESH_ON_STARTUP, RSS_UPDATE_ON_STARTUP, RSS_REQUEST_DELAY, RSS_MAX_RETRIES, RSS_RETRY_BASE_DELAY
 import javdb_scraper
 
 app = Flask(__name__)
@@ -193,10 +193,10 @@ def sync_jellyfin():
 
             conn.execute(
                 """
-                INSERT OR REPLACE INTO movies (code, title, year, actors, date_added, jellyfin_id, score)
-                VALUES (?, ?, ?, ?, ?, ?, COALESCE((SELECT score FROM movies WHERE code = ?), 50))
+                INSERT OR REPLACE INTO movies (code, title, year, actors, date_added, jellyfin_id, score, javdb_score)
+                VALUES (?, ?, ?, ?, ?, ?, COALESCE((SELECT score FROM movies WHERE code = ?), 50), (SELECT javdb_score FROM movies WHERE code = ?))
             """,
-                (code, title, year, actors, date_added, jellyfin_id, code),
+                (code, title, year, actors, date_added, jellyfin_id, code, code),
             )
             count += 1
 
@@ -232,9 +232,36 @@ def import_actors_from_jellyfin():
     return len(new_actors)
 
 
-def calculate_movie_score(code, actors_str):
-    """计算影片权重分数"""
+def calculate_movie_score(code, actors_str, javdb_score=None):
+    """计算影片权重分数
+
+    Args:
+        code: 影片番号
+        actors_str: 演员列表字符串
+        javdb_score: JavDB评分，如果为None则从数据库获取
+    """
     score = 50  # 初始分
+
+    # 获取JavDB评分（如果未传入）
+    if javdb_score is None:
+        conn = get_db()
+        row = conn.execute("SELECT javdb_score FROM movies WHERE code = ?", (code,)).fetchone()
+        conn.close()
+        if row:
+            javdb_score = row["javdb_score"]
+
+    # 根据JavDB评分调整分数
+    if javdb_score is not None:
+        if javdb_score >= 4.5:
+            score += 20
+        elif javdb_score >= 4.2:
+            score += 10
+        elif javdb_score >= 3.9:
+            score += 0  # 不加不减
+        elif javdb_score >= 3.5:
+            score -= 15
+        else:  # < 3.5
+            score -= 25
 
     csv_codes = load_csv_codes()
 
@@ -484,7 +511,8 @@ def get_movies_with_tags():
                 tags.append(label)
 
         # Use stored score if available, otherwise calculate
-        score = row["score"] if row["score"] is not None else calculate_movie_score(code, actors_str)
+        javdb_score = row["javdb_score"]
+        score = row["score"] if row["score"] is not None else calculate_movie_score(code, actors_str, javdb_score)
 
         # Build Jellyfin poster URL
         poster_url = None
@@ -663,11 +691,11 @@ def api_calc_scores():
     csv_codes = load_csv_codes()
     conn = get_db()
 
-    cursor = conn.execute("SELECT id, code, actors FROM movies")
+    cursor = conn.execute("SELECT id, code, actors, javdb_score FROM movies")
     updated = 0
 
     for row in cursor:
-        score = calculate_movie_score(row["code"], row["actors"])
+        score = calculate_movie_score(row["code"], row["actors"], row["javdb_score"])
         conn.execute("UPDATE movies SET score = ? WHERE id = ?", (score, row["id"]))
         updated += 1
 
@@ -767,7 +795,8 @@ def api_actor(actor_name):
                 tags.append(label)
 
         # Use stored score if available, otherwise calculate
-        score = row["score"] if row["score"] is not None else calculate_movie_score(code, actors)
+        javdb_score = row["javdb_score"]
+        score = row["score"] if row["score"] is not None else calculate_movie_score(code, actors, javdb_score)
 
         # Build Jellyfin poster URL
         poster_url = None
@@ -830,6 +859,58 @@ def api_actor_detail(actor_name):
         "movie_count": movie_count,
         "avatar_url": avatar_url,
         "actor_id": actor["id"]
+    })
+
+
+@app.route("/api/actor/<path:actor_name>/fetch_javdb_scores", methods=["POST"])
+def api_actor_fetch_javdb_scores(actor_name):
+    """批量获取演员所有影片的JavDB评分"""
+    import urllib.parse
+    actor_name = urllib.parse.unquote(actor_name)
+
+    conn = get_db()
+
+    # 获取该演员所有没有JavDB评分的影片
+    cursor = conn.execute(
+        "SELECT id, code, javdb_score FROM movies WHERE actors LIKE ? AND (javdb_score IS NULL OR javdb_score = '')",
+        (f"%{actor_name}%",)
+    )
+    movies = cursor.fetchall()
+    conn.close()
+
+    total = len(movies)
+    success_count = 0
+    fail_count = 0
+
+    for idx, movie in enumerate(movies):
+        # 添加延迟避免被封
+        if idx > 0:
+            time.sleep(2)
+
+        code = movie["code"]
+        movie_id = movie["id"]
+
+        try:
+            score = javdb_scraper.get_javdb_score(code)
+            if score is not None:
+                conn = get_db()
+                conn.execute("UPDATE movies SET javdb_score = ? WHERE id = ?", (score, movie_id))
+                conn.commit()
+                conn.close()
+                success_count += 1
+                print(f"[JavDB] {code}: {score}")
+            else:
+                fail_count += 1
+                print(f"[JavDB] {code}: Not found")
+        except Exception as e:
+            fail_count += 1
+            print(f"[JavDB] {code}: Error - {e}")
+
+    return jsonify({
+        "success": True,
+        "total": total,
+        "success_count": success_count,
+        "fail_count": fail_count
     })
 
 
@@ -1017,12 +1098,13 @@ def api_rss_items():
 
         # 从数据库获取演员信息来计算额外分数
         conn = get_db()
-        movie = conn.execute("SELECT actors FROM movies WHERE code = ?", (row["code"],)).fetchone()
+        movie = conn.execute("SELECT actors, javdb_score FROM movies WHERE code = ?", (row["code"],)).fetchone()
         actors_str = movie["actors"] if movie else ""
+        javdb_score = movie["javdb_score"] if movie else None
         conn.close()
 
         # 重新计算分数（因为初始插入时可能没有演员信息）
-        score = calculate_movie_score(row["code"], actors_str)
+        score = calculate_movie_score(row["code"], actors_str, javdb_score)
 
         result.append({
             "id": row["id"],
@@ -1249,22 +1331,70 @@ def api_javdb_task_status():
     })
 
 
+def fetch_single_javdb_score_background(code):
+    """后台获取单个影片的 JavDB 评分"""
+    global javdb_task_state
+    task_id = f"single_{code}_{int(datetime.now().timestamp())}"
+
+    # 添加到结果列表
+    result = {
+        "task_id": task_id,
+        "code": code,
+        "score": None,
+        "status": "running",
+        "timestamp": datetime.now().isoformat()
+    }
+    javdb_task_state["results"].append(result)
+
+    # 在后台线程中创建数据库连接
+    db_conn = None
+    try:
+        db_conn = get_db()
+        print(f"[JavDB] Fetching score for: {code}")
+        score = javdb_scraper.get_javdb_score(code)
+        print(f"[JavDB] Raw score result: {score}")
+        # 保存到数据库
+        if score is not None:
+            db_conn.execute("UPDATE movies SET javdb_score = ? WHERE code = ?", (score, code))
+            db_conn.commit()
+            result["score"] = score
+            result["status"] = "success"
+            print(f"[JavDB] {code}: Success - {score}")
+        else:
+            result["status"] = "not_found"
+            print(f"[JavDB] {code}: Not found in JavDB")
+    except Exception as e:
+        result["status"] = "error"
+        result["error"] = str(e)
+        print(f"[JavDB] {code}: Error - {e}")
+    finally:
+        if db_conn:
+            db_conn.close()
+
+    # 更新摘要
+    success_count = sum(1 for r in javdb_task_state["results"] if r.get("status") == "success")
+    fail_count = sum(1 for r in javdb_task_state["results"] if r.get("status") in ("error", "not_found"))
+    javdb_task_state["summary"] = {
+        "total": len(javdb_task_state["results"]),
+        "success": success_count,
+        "fail": fail_count
+    }
+
+
 @app.route("/api/test_javdb/<code>", methods=["GET"])
 def api_test_javdb(code):
-    """测试获取单个影片的 JavDB 评分"""
-    try:
-        score = javdb_scraper.get_javdb_score(code)
-        return jsonify({
-            "success": True,
-            "code": code,
-            "score": score
-        })
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "code": code,
-            "error": str(e)
-        })
+    """获取单个影片的 JavDB 评分（后台执行）"""
+    global javdb_task_state
+
+    # 启动后台线程获取评分
+    thread = threading.Thread(target=fetch_single_javdb_score_background, args=(code,), daemon=True)
+    thread.start()
+
+    return jsonify({
+        "success": True,
+        "message": "JavDB score fetch started in background",
+        "code": code
+    })
 
 
 if __name__ == "__main__":
@@ -1279,7 +1409,7 @@ if __name__ == "__main__":
     print(f"Imported {actor_count} new actors")
 
     # 自动抓取 RSS（在后台运行，不阻塞网页启动）
-    if AUTO_REFRESH_ON_STARTUP:
+    if AUTO_REFRESH_ON_STARTUP and RSS_UPDATE_ON_STARTUP:
         print("Starting background RSS fetch (will not block web access)...")
         rss_thread = threading.Thread(target=fetch_all_rss_background, daemon=True)
         rss_thread.start()

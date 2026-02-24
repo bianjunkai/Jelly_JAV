@@ -172,8 +172,7 @@ def parse_movie_page(html: str, code: str) -> Optional[Dict[str, Any]]:
     }
 
     # 查找评分
-    # JavDB 评分格式：data-score="8.5" 或类似的属性
-    # 评分显示：<span class="rating">8.5</span> 或 <span class="score">8.5</span>
+    # JavDB 评分格式：5分制，如 4.44
 
     # 模式1: data-score 属性
     score_pattern = r'data-score="(\d+\.?\d*)"'
@@ -205,6 +204,40 @@ def parse_movie_page(html: str, code: str) -> Optional[Dict[str, Any]]:
     if match:
         result["javdb_score"] = float(match.group(1))
         logger.info(f"Found score {result['javdb_score']} for {code}")
+        return result
+
+    # 模式5: 查找 movie-rating 类的数据
+    score_pattern5 = r'class="[^"]*movie-rating[^"]*"[^>]*data-score="(\d+\.?\d*)"'
+    match = re.search(score_pattern5, html)
+    if match:
+        score_10 = float(match.group(1))
+        result["javdb_score"] = round(score_10 / 2, 2)
+        logger.info(f"Found movie-rating score {score_10}/10 (converted to {result['javdb_score']}/5) for {code}")
+        return result
+
+    # 模式6: 查找评分数字在特定的 UD 评分区域
+    score_pattern6 = r'<span[^>]*class="[^"]*score[^"]*"[^>]*>(\d+\.?\d*)'
+    match = re.search(score_pattern6, html)
+    if match:
+        score_10 = float(match.group(1))
+        result["javdb_score"] = round(score_10 / 2, 2)
+        logger.info(f"Found span.score score {score_10}/10 (converted to {result['javdb_score']}/5) for {code}")
+        return result
+
+    # 模式7: 匹配 <span class="value">4.44</span> 格式 (5分制)
+    score_pattern7 = r'<span[^>]*class="value"[^>]*>.*?<span[^>]*class="score-stars"[^>]*>.*?&nbsp;(\d+\.?\d*),?'
+    match = re.search(score_pattern7, html, re.DOTALL)
+    if match:
+        result["javdb_score"] = float(match.group(1))
+        logger.info(f"Found score {result['javdb_score']}/5 from value/score-stars for {code}")
+        return result
+
+    # 模式8: 匹配中文格式 4.0分
+    score_pattern8 = r'>&nbsp;(\d+\.?\d*)\s*分'
+    match = re.search(score_pattern8, html)
+    if match:
+        result["javdb_score"] = float(match.group(1))
+        logger.info(f"Found score {result['javdb_score']}/5 from Chinese format for {code}")
         return result
 
     logger.info(f"No score found for {code}")
