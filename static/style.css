@@ -1318,6 +1318,42 @@ header h1::before {
     margin: 4px 0;
 }
 
+/* JavDB Score in Card */
+.movie-javdb-score {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    margin: 4px 4px 4px 0;
+}
+
+.movie-javdb-score.score-high {
+    background: rgba(46, 204, 113, 0.2);
+    color: #27ae60;
+}
+
+.movie-javdb-score.score-mid {
+    background: rgba(241, 196, 15, 0.2);
+    color: #f39c12;
+}
+
+.movie-javdb-score.score-low {
+    background: rgba(231, 76, 60, 0.2);
+    color: #e74c3c;
+}
+
+/* JavDB Button */
+.javdb-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+}
+
+.javdb-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, #5568d3 0%, #6838a2 100%);
+}
+
 /* RSS Notification Toast */
 .rss-notification {
     position: fixed;

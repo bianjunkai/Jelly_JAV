@@ -76,6 +76,10 @@
                     <span v-if="calculating">计算中...</span>
                     <span v-else>📊 计算权重分</span>
                 </button>
+                <button @click="fetchJavdbScores" :disabled="javdbFetching" class="sync-btn javdb-btn">
+                    <span v-if="javdbFetching">获取中...</span>
+                    <span v-else>⭐ JavDB评分</span>
+                </button>
                 <span class="stats">共 [[ stats.total ]] 部影片</span>
             </div>
         </header>
@@ -154,6 +158,9 @@
                             <div class="movie-year">[[ movie.year ]]</div>
                             <div class="movie-actors" v-if="movie.actors">[[ movie.actors ]]</div>
                             <div class="movie-score" v-if="movie.score">[[ movie.score ]]分</div>
+                            <div class="movie-javdb-score" v-if="movie.javdb_score" :class="getJavdbScoreClass(movie.javdb_score)">
+                                ⭐ [[ movie.javdb_score ]]/5
+                            </div>
                             <div class="movie-tags">
                                 <span
                                     v-for="tag in movie.all_tags"
@@ -382,6 +389,9 @@
                                 <div class="movie-title" :title="movie.title">[[ movie.title ]]</div>
                                 <div class="movie-year">[[ movie.year ]]</div>
                                 <div class="movie-score" v-if="movie.score">[[ movie.score ]]分</div>
+                                <div class="movie-javdb-score" v-if="movie.javdb_score" :class="getJavdbScoreClass(movie.javdb_score)">
+                                    ⭐ [[ movie.javdb_score ]]/5
+                                </div>
                                 <div class="movie-tags">
                                     <span
                                         v-for="tag in movie.all_tags"
@@ -523,6 +533,7 @@
                 const sortBy = ref('code');
                 const syncing = ref(false);
                 const calculating = ref(false);
+                const javdbFetching = ref(false);
                 const stats = ref({ total: 0, javdb_count: 0, javlib_count: 0 });
 
                 // RSS
@@ -918,6 +929,44 @@
                     }
                 };
 
+                const getJavdbScoreClass = (score) => {
+                    if (score >= 4) return 'score-high';
+                    if (score >= 3) return 'score-mid';
+                    return 'score-low';
+                };
+
+                const fetchJavdbScores = async () => {
+                    javdbFetching.value = true;
+                    try {
+                        const res = await axios.post('/api/fetch_javdb_scores');
+                        if (res.data.success) {
+                            // Start polling for status
+                            pollJavdbStatus();
+                        }
+                    } catch (e) {
+                        console.error('JavDB fetch error:', e);
+                        javdbFetching.value = false;
+                    }
+                };
+
+                const pollJavdbStatus = () => {
+                    const pollInterval = setInterval(async () => {
+                        try {
+                            const res = await axios.get('/api/javdb_task_status');
+                            if (res.data.is_complete) {
+                                clearInterval(pollInterval);
+                                javdbFetching.value = false;
+                                await loadMovies();
+                                if (res.data.summary) {
+                                    alert(`JavDB 评分获取完成！成功: ${res.data.summary.success}, 失败: ${res.data.summary.fail}`);
+                                }
+                            }
+                        } catch (e) {
+                            console.error('JavDB status poll error:', e);
+                        }
+                    }, 2000);
+                };
+
                 const switchTab = async (tabId) => {
                     currentTab.value = tabId;
                     currentPage.value = 1;
@@ -1014,6 +1063,7 @@
                     sortBy,
                     syncing,
                     calculating,
+                    javdbFetching,
                     stats,
                     tabs,
                     currentPage,
@@ -1044,6 +1094,8 @@
                     showActorDetail,
                     sync,
                     calcScores,
+                    getJavdbScoreClass,
+                    fetchJavdbScores,
                     switchTab,
                     goToPage,
                     changePageSize,

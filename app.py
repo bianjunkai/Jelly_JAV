@@ -10,6 +10,7 @@ import queue
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request, Response
 from config import JELLYFIN_URL, JELLYFIN_API_KEY, RSSHUB_URL, JAVBUS_DOMAIN, JAVBUS_LANGUAGE, AUTO_REFRESH_ON_STARTUP, RSS_REQUEST_DELAY, RSS_MAX_RETRIES, RSS_RETRY_BASE_DELAY
+import javdb_scraper
 
 app = Flask(__name__)
 DB_PATH = "data.db"
@@ -26,6 +27,16 @@ rss_update_state = {
     "results": [],
     "start_time": None,
     "end_time": None,
+}
+
+# Global JavDB score fetch state
+javdb_task_state = {
+    "is_running": False,
+    "is_complete": False,
+    "results": [],
+    "start_time": None,
+    "end_time": None,
+    "summary": None
 }
 
 CSV_FILES = {
@@ -65,6 +76,12 @@ def init_db():
     # Add score column if it doesn't exist
     try:
         conn.execute("ALTER TABLE movies ADD COLUMN score INTEGER DEFAULT 50")
+    except:
+        pass  # Column already exists
+
+    # Add javdb_score column if it doesn't exist
+    try:
+        conn.execute("ALTER TABLE movies ADD COLUMN javdb_score REAL")
     except:
         pass  # Column already exists
 
@@ -456,7 +473,7 @@ def fetch_all_rss():
 def get_movies_with_tags():
     csv_codes = load_csv_codes()
     conn = get_db()
-    cursor = conn.execute("SELECT code, title, year, actors, jellyfin_id, score FROM movies ORDER BY code")
+    cursor = conn.execute("SELECT code, title, year, actors, jellyfin_id, score, javdb_score FROM movies ORDER BY code")
     movies = []
     for row in cursor:
         code = row["code"]
@@ -484,6 +501,7 @@ def get_movies_with_tags():
                 "all_tags": list(csv_codes.keys()),
                 "poster_url": poster_url,
                 "score": score,
+                "javdb_score": row["javdb_score"],
             }
         )
     conn.close()
@@ -732,7 +750,7 @@ def api_actor(actor_name):
 
     conn = get_db()
     cursor = conn.execute(
-        "SELECT code, title, year, actors, jellyfin_id, score FROM movies WHERE actors LIKE ?",
+        "SELECT code, title, year, actors, jellyfin_id, score, javdb_score FROM movies WHERE actors LIKE ?",
         (f"%{actor_name}%",),
     )
 
@@ -766,6 +784,7 @@ def api_actor(actor_name):
                 "all_tags": all_tags,
                 "poster_url": poster_url,
                 "score": score,
+                "javdb_score": row["javdb_score"],
             }
         )
 
@@ -1114,6 +1133,138 @@ def api_rss_status():
         "summary": rss_update_state.get("summary", None),
         "results": rss_update_state["results"][-50:] if rss_update_state["results"] else []  # Return last 50 results
     })
+
+
+# ========== JavDB Score API Endpoints ==========
+
+def fetch_javdb_scores_background():
+    """后台获取所有影片的 JavDB 评分"""
+    global javdb_task_state
+
+    javdb_task_state["is_running"] = True
+    javdb_task_state["is_complete"] = False
+    javdb_task_state["start_time"] = datetime.now().isoformat()
+    javdb_task_state["results"] = []
+
+    conn = get_db()
+    # 只获取没有 javdb_score 的影片
+    movies = conn.execute("SELECT id, code FROM movies WHERE javdb_score IS NULL OR javdb_score = ''").fetchall()
+    conn.close()
+
+    total = len(movies)
+    success_count = 0
+    fail_count = 0
+
+    for idx, movie in enumerate(movies):
+        # 添加延迟避免被封
+        if idx > 0:
+            time.sleep(2)
+
+        movie_id = movie["id"]
+        code = movie["code"]
+
+        try:
+            score = javdb_scraper.get_javdb_score(code)
+
+            if score is not None:
+                conn = get_db()
+                conn.execute("UPDATE movies SET javdb_score = ? WHERE id = ?", (score, movie_id))
+                conn.commit()
+                conn.close()
+                success_count += 1
+                javdb_task_state["results"].append({
+                    "code": code,
+                    "movie_id": movie_id,
+                    "score": score,
+                    "success": True
+                })
+                print(f"[JavDB] {code}: {score}")
+            else:
+                fail_count += 1
+                javdb_task_state["results"].append({
+                    "code": code,
+                    "movie_id": movie_id,
+                    "score": None,
+                    "success": False,
+                    "error": "Not found or error"
+                })
+                print(f"[JavDB] {code}: Not found")
+
+        except Exception as e:
+            fail_count += 1
+            javdb_task_state["results"].append({
+                "code": code,
+                "movie_id": movie_id,
+                "score": None,
+                "success": False,
+                "error": str(e)
+            })
+            print(f"[JavDB] {code}: Error - {e}")
+
+    javdb_task_state["is_running"] = False
+    javdb_task_state["is_complete"] = True
+    javdb_task_state["end_time"] = datetime.now().isoformat()
+    javdb_task_state["summary"] = {
+        "total": total,
+        "success": success_count,
+        "fail": fail_count
+    }
+
+    print(f"JavDB score fetch completed: {success_count}/{total} succeeded, {fail_count} failed")
+
+
+@app.route("/api/fetch_javdb_scores", methods=["POST"])
+def api_fetch_javdb_scores():
+    """启动后台获取 JavDB 评分"""
+    global javdb_task_state
+
+    # 如果已经在运行，返回当前状态
+    if javdb_task_state["is_running"]:
+        return jsonify({
+            "success": False,
+            "message": "JavDB score fetch is already running",
+            "is_running": True
+        })
+
+    # 启动后台线程
+    javdb_thread = threading.Thread(target=fetch_javdb_scores_background, daemon=True)
+    javdb_thread.start()
+
+    return jsonify({
+        "success": True,
+        "message": "JavDB score fetch started in background"
+    })
+
+
+@app.route("/api/javdb_task_status", methods=["GET"])
+def api_javdb_task_status():
+    """获取 JavDB 评分获取任务状态"""
+    return jsonify({
+        "is_running": javdb_task_state["is_running"],
+        "is_complete": javdb_task_state["is_complete"],
+        "start_time": javdb_task_state["start_time"],
+        "end_time": javdb_task_state["end_time"],
+        "summary": javdb_task_state.get("summary", None),
+        "results": javdb_task_state["results"][-50:] if javdb_task_state["results"] else []
+    })
+
+
+@app.route("/api/test_javdb/<code>", methods=["GET"])
+def api_test_javdb(code):
+    """测试获取单个影片的 JavDB 评分"""
+    try:
+        score = javdb_scraper.get_javdb_score(code)
+        return jsonify({
+            "success": True,
+            "code": code,
+            "score": score
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "code": code,
+            "error": str(e)
+        })
 
 
 if __name__ == "__main__":
