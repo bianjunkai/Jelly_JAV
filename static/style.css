@@ -78,6 +78,15 @@ header h1::before {
     cursor: not-allowed;
 }
 
+.score-btn {
+    background: #6366f1;
+}
+
+.score-btn:hover:not(:disabled) {
+    background: #818cf8;
+    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+}
+
 .stats {
     font-size: 14px;
     color: #999;
@@ -147,6 +156,7 @@ header h1::before {
     gap: 16px;
     margin-bottom: 24px;
     flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
 .search-bar input {
@@ -411,6 +421,11 @@ header h1::before {
     padding: 16px 20px;
     border-bottom: 1px solid rgba(255,255,255,0.05);
     font-size: 14px;
+    vertical-align: middle;
+}
+
+.rank-table td:last-child {
+    white-space: nowrap;
 }
 
 .rank-table tr:nth-child(odd) {
@@ -547,6 +562,16 @@ header h1::before {
     transform: translateY(-2px);
 }
 
+.actor-item.has-javbus {
+    border: 1px solid #10b981;
+    background: rgba(16, 185, 129, 0.15);
+}
+
+.javbus-badge {
+    font-size: 14px;
+    margin-left: 4px;
+}
+
 .actor-name {
     font-weight: 500;
     color: #fff;
@@ -557,6 +582,71 @@ header h1::before {
     padding: 2px 10px;
     border-radius: 12px;
     font-size: 12px;
+}
+
+.actor-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.actor-item.has-javbus {
+    border: 1px solid #10b981;
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.actor-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    flex: 1;
+}
+
+.actor-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.javbus-input {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 12px;
+    font-size: 12px;
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+    outline: none;
+    width: 120px;
+    font-family: monospace;
+}
+
+.javbus-input::placeholder {
+    color: #666;
+    font-family: inherit;
+}
+
+.javbus-input:focus {
+    background: rgba(255,255,255,0.15);
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.5);
+}
+
+.rss-indicator {
+    font-size: 14px;
+}
+
+.rss-view-btn {
+    background: rgba(99, 102, 241, 0.2);
+    border: none;
+    padding: 6px 10px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s;
+}
+
+.rss-view-btn:hover {
+    background: #6366f1;
 }
 
 /* Actor Detail */
@@ -660,7 +750,8 @@ header h1::before {
 }
 
 .javbus-btn {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
     background: #ff6b6b;
     color: white;
     padding: 4px 10px;
@@ -670,6 +761,7 @@ header h1::before {
     text-decoration: none;
     margin-left: 8px;
     transition: all 0.3s;
+    vertical-align: middle;
 }
 
 .javbus-btn:hover {
@@ -776,4 +868,416 @@ header h1::before {
 
 .rank-table {
     min-width: 600px;
+}
+
+/* RSS View */
+.rss-view {
+    background: #1a1a1a;
+    border-radius: 8px;
+    padding: 24px;
+}
+
+.rss-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.rss-header .section-title {
+    margin-bottom: 0;
+}
+
+.rss-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.rss-refresh-btn, .watched-btn {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    padding: 10px 20px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #fff;
+    transition: all 0.3s;
+}
+
+.rss-refresh-btn:hover:not(:disabled), .watched-btn:hover:not(:disabled) {
+    background: #e50914;
+}
+
+.rss-refresh-btn:disabled, .watched-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.rss-view-toggle {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.toggle-btn {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    padding: 10px 20px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #999;
+    transition: all 0.3s;
+}
+
+.toggle-btn:hover {
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+}
+
+.toggle-btn.active {
+    background: #e50914;
+    color: #fff;
+}
+
+.rss-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.rss-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    background: rgba(255,255,255,0.05);
+    padding: 16px;
+    border-radius: 8px;
+    transition: all 0.3s;
+}
+
+.rss-item:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+.rss-item.watched {
+    opacity: 0.5;
+}
+
+.rss-checkbox {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    accent-color: #e50914;
+    flex-shrink: 0;
+    margin-top: 4px;
+}
+
+.rss-item-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.rss-item-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+}
+
+.rss-code {
+    font-weight: 600;
+    color: #e50914;
+    text-decoration: none;
+    font-family: monospace;
+}
+
+.rss-code:hover {
+    text-decoration: underline;
+}
+
+.rss-score {
+    background: rgba(229, 9, 20, 0.2);
+    color: #e50914;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.rss-actor {
+    background: rgba(99, 102, 241, 0.2);
+    color: #818cf8;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+}
+
+.rss-item-title {
+    font-size: 14px;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 4px;
+}
+
+.rss-item-date {
+    font-size: 12px;
+    color: #666;
+}
+
+/* RSS by Actor */
+.rss-by-actor {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.actor-rss-group {
+    background: rgba(255,255,255,0.05);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.actor-rss-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 0 16px;
+    color: #fff;
+    font-size: 16px;
+}
+
+.collapse-toggle {
+    cursor: pointer;
+    font-size: 12px;
+    color: #999;
+    margin-right: 8px;
+    transition: color 0.3s;
+}
+
+.collapse-toggle:hover {
+    color: #fff;
+}
+
+.small-watched-btn {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    padding: 6px 12px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #fff;
+    transition: all 0.3s;
+}
+
+.small-watched-btn:hover {
+    background: #e50914;
+}
+
+/* Actor Detail Page */
+.actor-detail-page {
+    background: #1a1a1a;
+    border-radius: 8px;
+    padding: 24px;
+}
+
+.actor-profile {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 24px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.actor-avatar {
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: linear-gradient(180deg, #2d2d44 0%, #1a1a2e 100%);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.actor-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.avatar-placeholder {
+    width: 80px;
+    height: 80px;
+    color: #666;
+}
+
+.actor-info-section {
+    flex: 1;
+}
+
+.actor-info-section .actor-name {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: #fff;
+}
+
+.actor-stats {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 16px;
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.stat-label {
+    font-size: 12px;
+    color: #666;
+}
+
+.stat-value {
+    font-size: 16px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.javbus-config {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.javbus-config label {
+    font-size: 14px;
+    color: #999;
+}
+
+.javbus-input-large {
+    padding: 10px 16px;
+    border: none;
+    border-radius: 12px;
+    font-size: 14px;
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+    outline: none;
+    width: 180px;
+    font-family: monospace;
+}
+
+.javbus-input-large::placeholder {
+    color: #666;
+    font-family: inherit;
+}
+
+.javbus-input-large:focus {
+    background: rgba(255,255,255,0.15);
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.5);
+}
+
+.rss-refresh-small {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    padding: 10px 16px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #fff;
+    transition: all 0.3s;
+}
+
+.rss-refresh-small:hover:not(:disabled) {
+    background: #e50914;
+}
+
+.rss-refresh-small:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.save-btn {
+    background: #10b981;
+}
+
+.save-btn:hover:not(:disabled) {
+    background: #34d399;
+}
+
+/* Actor Tabs */
+.actor-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding-bottom: 0;
+}
+
+.actor-tab {
+    padding: 12px 20px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 14px;
+    color: #999;
+    border-bottom: 3px solid transparent;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.actor-tab:hover {
+    color: #fff;
+}
+
+.actor-tab.active {
+    color: #fff;
+    border-bottom-color: #e50914;
+    font-weight: 600;
+}
+
+.unwatched-badge {
+    background: #e50914;
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* Actor Movies */
+.actor-movies .movie-grid {
+    margin-bottom: 0;
+}
+
+/* Actor RSS List */
+.actor-rss-list .rss-actions {
+    margin-bottom: 16px;
+}
+
+.actor-rss-list .rss-item {
+    margin-bottom: 12px;
+}
+
+/* Movie Score in Card */
+.movie-score {
+    display: inline-block;
+    background: rgba(229, 9, 20, 0.2);
+    color: #e50914;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    margin: 4px 0;
 }

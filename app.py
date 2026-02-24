@@ -3,8 +3,10 @@ import sqlite3
 import requests
 import re
 import os
+import xml.etree.ElementTree as ET
+from datetime import datetime
 from flask import Flask, render_template, jsonify, request, Response
-from config import JELLYFIN_URL, JELLYFIN_API_KEY
+from config import JELLYFIN_URL, JELLYFIN_API_KEY, RSSHUB_URL, JAVBUS_DOMAIN, JAVBUS_LANGUAGE, AUTO_REFRESH_ON_STARTUP
 
 app = Flask(__name__)
 DB_PATH = "data.db"
@@ -42,6 +44,52 @@ def init_db():
         conn.execute("ALTER TABLE movies ADD COLUMN jellyfin_id TEXT")
     except:
         pass  # Column already exists
+
+    # Add score column if it doesn't exist
+    try:
+        conn.execute("ALTER TABLE movies ADD COLUMN score INTEGER DEFAULT 50")
+    except:
+        pass  # Column already exists
+
+    # 1. actors 表 - 演员 JAVBus ID 关联
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS actors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            javbus_id TEXT,
+            rss_url TEXT,
+            is_watched BOOLEAN DEFAULT 0,
+            last_updated TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # 2. rss_items 表 - RSS 抓取的影片记录
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rss_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_id INTEGER NOT NULL,
+            code TEXT NOT NULL,
+            title TEXT,
+            javbus_url TEXT,
+            pub_date TEXT,
+            is_watched BOOLEAN DEFAULT 0,
+            score INTEGER DEFAULT 50,
+            detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(actor_id, code)
+        )
+    """)
+
+    # 3. actor_tags 表 - 演员榜单标签
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS actor_tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_id INTEGER NOT NULL,
+            tag_name TEXT NOT NULL,
+            UNIQUE(actor_id, tag_name)
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -111,10 +159,10 @@ def sync_jellyfin():
 
             conn.execute(
                 """
-                INSERT OR REPLACE INTO movies (code, title, year, actors, date_added, jellyfin_id)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO movies (code, title, year, actors, date_added, jellyfin_id, score)
+                VALUES (?, ?, ?, ?, ?, ?, COALESCE((SELECT score FROM movies WHERE code = ?), 50))
             """,
-                (code, title, year, actors, date_added, jellyfin_id),
+                (code, title, year, actors, date_added, jellyfin_id, code),
             )
             count += 1
 
@@ -126,17 +174,195 @@ def sync_jellyfin():
         return -1
 
 
+def import_actors_from_jellyfin():
+    """从 Jellyfin 电影中提取演员列表并导入到 actors 表"""
+    conn = get_db()
+    cursor = conn.execute("SELECT DISTINCT actors FROM movies WHERE actors != ''")
+
+    existing_actors = set(row["name"] for row in conn.execute("SELECT name FROM actors"))
+
+    new_actors = []
+    for row in cursor:
+        if row["actors"]:
+            for actor in row["actors"].split(","):
+                actor = actor.strip()
+                if actor and actor not in existing_actors:
+                    new_actors.append(actor)
+                    existing_actors.add(actor)
+
+    for actor in new_actors:
+        conn.execute("INSERT INTO actors (name) VALUES (?)", (actor,))
+
+    conn.commit()
+    conn.close()
+    return len(new_actors)
+
+
+def calculate_movie_score(code, actors_str):
+    """计算影片权重分数"""
+    score = 50  # 初始分
+
+    csv_codes = load_csv_codes()
+
+    # 检查上榜情况
+    in_javdb = code in csv_codes.get("JavDB TOP250", {})
+    in_javlib = code in csv_codes.get("JavLibray TOP500", {})
+
+    # 同时上榜 JAVDB + JAVLibrary
+    if in_javdb and in_javlib:
+        score += 30
+    # 单独上榜
+    elif in_javdb or in_javlib:
+        score += 20
+
+    # 检查是否在 JAVDB 年度榜单
+    for label in ["JavDB 2025 TOP250", "JavDB 2024 TOP250", "JavDB 2023 TOP250"]:
+        if code in csv_codes.get(label, {}):
+            score += 10
+            break
+
+    # 多位演员
+    if actors_str:
+        actors_list = [a.strip() for a in actors_str.split(",") if a.strip()]
+        if len(actors_list) >= 2:
+            score += 5
+
+    # 检查演员是否有 JAVBus ID
+    if actors_str:
+        conn = get_db()
+        actors_list = [a.strip() for a in actors_str.split(",") if a.strip()]
+        for actor in actors_list:
+            actor_row = conn.execute(
+                "SELECT javbus_id FROM actors WHERE name = ? AND javbus_id IS NOT NULL AND javbus_id != ''",
+                (actor,)
+            ).fetchone()
+            if actor_row:
+                score += 15
+                break  # 只需要有一个演员有 JAVBus ID 即可加分
+        conn.close()
+
+    return score
+
+
+def build_rss_url(javbus_id):
+    """构建 RSS 订阅链接"""
+    if not javbus_id:
+        return None
+
+    lang = JAVBUS_LANGUAGE if JAVBUS_LANGUAGE else ""
+    url = f"{RSSHUB_URL}/javbus/star/{javbus_id}"
+    params = []
+    if JAVBUS_DOMAIN:
+        params.append(f"domain={JAVBUS_DOMAIN}")
+    if lang:
+        params.append(f"lang={lang}")
+    if params:
+        url += "?" + "&".join(params)
+    return url
+
+
+def fetch_rss(actor_id):
+    """抓取指定演员的 RSS 订阅"""
+    conn = get_db()
+    actor = conn.execute("SELECT id, name, javbus_id FROM actors WHERE id = ?", (actor_id,)).fetchone()
+
+    if not actor or not actor["javbus_id"]:
+        conn.close()
+        return {"success": False, "error": "Actor not found or no javbus_id"}
+
+    rss_url = build_rss_url(actor["javbus_id"])
+    if not rss_url:
+        conn.close()
+        return {"success": False, "error": "Invalid RSS URL"}
+
+    try:
+        resp = requests.get(rss_url, timeout=30)
+        resp.raise_for_status()
+
+        # 解析 RSS XML
+        root = ET.fromstring(resp.content)
+        items_added = 0
+
+        # Get all existing codes from movies table for this actor
+        existing_codes = set()
+        cursor = conn.execute("SELECT code, actors FROM movies")
+        for row in cursor:
+            if row["actors"]:
+                actors = [a.strip() for a in row["actors"].split(",")]
+                if actor["name"] in actors:
+                    existing_codes.add(row["code"])
+
+        for item in root.findall(".//item"):
+            title = item.find("title")
+            title_text = title.text if title is not None else ""
+
+            link = item.find("link")
+            link_text = link.text if link is not None else ""
+
+            pub_date = item.find("pubDate")
+            pub_date_text = pub_date.text if pub_date is not None else ""
+
+            # 从标题提取番号
+            code = extract_code(title_text)
+
+            if code:
+                # Check if this code exists in the movies table for this actor
+                is_watched = 1 if code in existing_codes else 0
+
+                try:
+                    conn.execute("""
+                        INSERT OR IGNORE INTO rss_items (actor_id, code, title, javbus_url, pub_date, detected_at, is_watched)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (actor_id, code, title_text, link_text, pub_date_text, datetime.now().isoformat(), is_watched))
+                    items_added += 1
+                except Exception as e:
+                    pass  # 忽略重复
+
+        # 更新 actor 的 last_updated
+        conn.execute("UPDATE actors SET last_updated = ? WHERE id = ?", (datetime.now().isoformat(), actor_id))
+        conn.commit()
+        conn.close()
+
+        return {"success": True, "items_added": items_added}
+    except Exception as e:
+        conn.close()
+        print(f"RSS fetch error for actor {actor_id}: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def fetch_all_rss():
+    """抓取所有已配置 JAVBus ID 的演员 RSS"""
+    conn = get_db()
+    actors = conn.execute("SELECT id, name, javbus_id FROM actors WHERE javbus_id IS NOT NULL AND javbus_id != ''").fetchall()
+    conn.close()
+
+    results = []
+    for actor in actors:
+        result = fetch_rss(actor["id"])
+        results.append({
+            "actor_id": actor["id"],
+            "actor_name": actor["name"],
+            "result": result
+        })
+
+    return results
+
+
 def get_movies_with_tags():
     csv_codes = load_csv_codes()
     conn = get_db()
-    cursor = conn.execute("SELECT code, title, year, actors, jellyfin_id FROM movies ORDER BY code")
+    cursor = conn.execute("SELECT code, title, year, actors, jellyfin_id, score FROM movies ORDER BY code")
     movies = []
     for row in cursor:
         code = row["code"]
+        actors_str = row["actors"] or ""
         tags = []
         for label, codes in csv_codes.items():
             if code in codes:
                 tags.append(label)
+
+        # Use stored score if available, otherwise calculate
+        score = row["score"] if row["score"] is not None else calculate_movie_score(code, actors_str)
 
         # Build Jellyfin poster URL
         poster_url = None
@@ -152,6 +378,7 @@ def get_movies_with_tags():
                 "tags": tags,
                 "all_tags": list(csv_codes.keys()),
                 "poster_url": poster_url,
+                "score": score,
             }
         )
     conn.close()
@@ -307,6 +534,26 @@ def api_sync():
     return jsonify({"success": count >= 0, "count": count})
 
 
+@app.route("/api/calc_scores", methods=["POST"])
+def api_calc_scores():
+    """手动计算所有影片的权重分"""
+    csv_codes = load_csv_codes()
+    conn = get_db()
+
+    cursor = conn.execute("SELECT id, code, actors FROM movies")
+    updated = 0
+
+    for row in cursor:
+        score = calculate_movie_score(row["code"], row["actors"])
+        conn.execute("UPDATE movies SET score = ? WHERE id = ?", (score, row["id"]))
+        updated += 1
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True, "updated": updated})
+
+
 @app.route("/api/stats")
 def api_stats():
     conn = get_db()
@@ -380,7 +627,7 @@ def api_actor(actor_name):
 
     conn = get_db()
     cursor = conn.execute(
-        "SELECT code, title, year, actors, jellyfin_id FROM movies WHERE actors LIKE ?",
+        "SELECT code, title, year, actors, jellyfin_id, score FROM movies WHERE actors LIKE ?",
         (f"%{actor_name}%",),
     )
 
@@ -396,6 +643,9 @@ def api_actor(actor_name):
             if code in codes:
                 tags.append(label)
 
+        # Use stored score if available, otherwise calculate
+        score = row["score"] if row["score"] is not None else calculate_movie_score(code, actors)
+
         # Build Jellyfin poster URL
         poster_url = None
         if row["jellyfin_id"]:
@@ -410,11 +660,100 @@ def api_actor(actor_name):
                 "tags": tags,
                 "all_tags": all_tags,
                 "poster_url": poster_url,
+                "score": score,
             }
         )
 
     conn.close()
     return jsonify(movies)
+
+
+@app.route("/api/actor/<path:actor_name>/detail")
+def api_actor_detail(actor_name):
+    """Get actor detail info including avatar, JAVBus ID, RSS info"""
+    import urllib.parse
+    actor_name = urllib.parse.unquote(actor_name)
+
+    conn = get_db()
+
+    # Get actor info from actors table
+    actor = conn.execute(
+        "SELECT id, name, javbus_id, rss_url, last_updated FROM actors WHERE name = ?",
+        (actor_name,)
+    ).fetchone()
+
+    # Get movie count for this actor
+    movie_count = 0
+    cursor = conn.execute("SELECT actors FROM movies WHERE actors LIKE ?", (f"%{actor_name}%",))
+    for row in cursor:
+        actors = row["actors"] or ""
+        if actor_name in [a.strip() for a in actors.split(",")]:
+            movie_count += 1
+
+    # Get actor avatar from Jellyfin
+    avatar_url = f"/api/actor/{urllib.parse.quote(actor_name)}/poster"
+
+    conn.close()
+
+    if not actor:
+        return jsonify({"error": "Actor not found"}), 404
+
+    return jsonify({
+        "name": actor["name"],
+        "javbus_id": actor["javbus_id"],
+        "rss_url": actor["rss_url"],
+        "last_updated": actor["last_updated"],
+        "movie_count": movie_count,
+        "avatar_url": avatar_url,
+        "actor_id": actor["id"]
+    })
+
+
+@app.route("/api/actor/<path:actor_name>/poster")
+def api_actor_poster(actor_name):
+    """Get actor avatar from Jellyfin People API"""
+    import urllib.parse
+    actor_name = urllib.parse.unquote(actor_name)
+    actor_name_encoded = urllib.parse.quote(actor_name)
+
+    headers = {"X-Emby-Token": JELLYFIN_API_KEY}
+
+    # Method 1: Use /Items/ByName/People/{name}
+    try:
+        byname_url = f"{JELLYFIN_URL}Items/ByName/People/{actor_name_encoded}"
+        resp = requests.get(byname_url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("Id"):
+                person_id = data.get("Id")
+                image_url = f"{JELLYFIN_URL}Items/{person_id}/Images/Primary?maxWidth=200"
+                img_resp = requests.get(image_url, headers=headers, timeout=10)
+                if img_resp.status_code == 200:
+                    content_type = img_resp.headers.get('Content-Type', 'image/jpeg')
+                    return Response(img_resp.content, mimetype=content_type)
+    except Exception as e:
+        print(f"Actor poster error: {e}")
+
+    # Method 2: Use /Persons search
+    try:
+        persons_url = f"{JELLYFIN_URL}Persons"
+        params = {"searchTerm": actor_name, "limit": 10}
+        resp = requests.get(persons_url, headers=headers, params=params, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            for item in data.get("Items", []):
+                if item.get("Name") == actor_name:
+                    person_id = item.get("Id")
+                    if person_id:
+                        image_url = f"{JELLYFIN_URL}Items/{person_id}/Images/Primary?maxWidth=200"
+                        img_resp = requests.get(image_url, headers=headers, timeout=10)
+                        if img_resp.status_code == 200:
+                            content_type = img_resp.headers.get('Content-Type', 'image/jpeg')
+                            return Response(img_resp.content, mimetype=content_type)
+    except Exception as e:
+        print(f"Actor poster /Persons error: {e}")
+
+    return "", 404
 
 
 # Proxy endpoint for Jellyfin images (adds authentication)
@@ -436,9 +775,222 @@ def api_poster(jellyfin_id):
         return "", 404
 
 
+# ========== RSS API Endpoints ==========
+
+@app.route("/api/rss/actors", methods=["GET"])
+def api_rss_actors():
+    """获取演员列表（包含 JAVBus ID 配置状态）"""
+    conn = get_db()
+    actors = conn.execute("""
+        SELECT a.id, a.name, a.javbus_id, a.rss_url, a.is_watched, a.last_updated,
+               (SELECT COUNT(*) FROM rss_items WHERE actor_id = a.id) as item_count,
+               (SELECT COUNT(*) FROM rss_items WHERE actor_id = a.id AND is_watched = 0) as unwatched_count
+        FROM actors a
+        ORDER BY a.name
+    """).fetchall()
+    conn.close()
+
+    return jsonify([{
+        "id": row["id"],
+        "name": row["name"],
+        "javbus_id": row["javbus_id"],
+        "rss_url": row["rss_url"],
+        "is_watched": row["is_watched"],
+        "last_updated": row["last_updated"],
+        "item_count": row["item_count"],
+        "unwatched_count": row["unwatched_count"],
+        "has_rss": bool(row["javbus_id"])
+    } for row in actors])
+
+
+@app.route("/api/rss/actors", methods=["POST"])
+def api_rss_actors_add():
+    """添加演员"""
+    data = request.get_json()
+    name = data.get("name", "").strip()
+
+    if not name:
+        return jsonify({"error": "Name is required"}), 400
+
+    conn = get_db()
+    try:
+        conn.execute("INSERT INTO actors (name) VALUES (?)", (name,))
+        conn.commit()
+        actor_id = conn.execute("SELECT id FROM actors WHERE name = ?", (name,)).fetchone()["id"]
+        conn.close()
+        return jsonify({"success": True, "id": actor_id})
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": "Actor already exists"}), 400
+
+
+@app.route("/api/rss/actors/<int:actor_id>", methods=["PUT"])
+def api_rss_actor_update(actor_id):
+    """更新演员 JAVBus ID"""
+    data = request.get_json()
+    javbus_id = data.get("javbus_id", "").strip()
+
+    rss_url = build_rss_url(javbus_id) if javbus_id else None
+
+    conn = get_db()
+    conn.execute("""
+        UPDATE actors SET javbus_id = ?, rss_url = ?, last_updated = ?
+        WHERE id = ?
+    """, (javbus_id, rss_url, datetime.now().isoformat() if javbus_id else None, actor_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True})
+
+
+@app.route("/api/rss/actors/<int:actor_id>", methods=["DELETE"])
+def api_rss_actor_delete(actor_id):
+    """删除演员"""
+    conn = get_db()
+    conn.execute("DELETE FROM rss_items WHERE actor_id = ?", (actor_id,))
+    conn.execute("DELETE FROM actor_tags WHERE actor_id = ?", (actor_id,))
+    conn.execute("DELETE FROM actors WHERE id = ?", (actor_id,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True})
+
+
+@app.route("/api/rss/items")
+def api_rss_items():
+    """获取 RSS 影片列表"""
+    actor_id = request.args.get("actor_id", type=int)
+    view_mode = request.args.get("view", "all")  # all | by_actor
+
+    csv_codes = load_csv_codes()
+
+    conn = get_db()
+
+    if actor_id:
+        items = conn.execute("""
+            SELECT r.id, r.actor_id, r.code, r.title, r.javbus_url, r.pub_date,
+                   r.is_watched, r.score, r.detected_at, a.name as actor_name
+            FROM rss_items r
+            JOIN actors a ON r.actor_id = a.id
+            WHERE r.actor_id = ?
+            ORDER BY r.is_watched ASC, r.score DESC, r.detected_at DESC
+        """, (actor_id,)).fetchall()
+    else:
+        items = conn.execute("""
+            SELECT r.id, r.actor_id, r.code, r.title, r.javbus_url, r.pub_date,
+                   r.is_watched, r.score, r.detected_at, a.name as actor_name
+            FROM rss_items r
+            JOIN actors a ON r.actor_id = a.id
+            ORDER BY r.is_watched ASC, r.score DESC, r.detected_at DESC
+        """).fetchall()
+
+    conn.close()
+
+    result = []
+    for row in items:
+        # 计算权重分
+        score = row["score"]
+
+        # 从数据库获取演员信息来计算额外分数
+        conn = get_db()
+        movie = conn.execute("SELECT actors FROM movies WHERE code = ?", (row["code"],)).fetchone()
+        actors_str = movie["actors"] if movie else ""
+        conn.close()
+
+        # 重新计算分数（因为初始插入时可能没有演员信息）
+        score = calculate_movie_score(row["code"], actors_str)
+
+        result.append({
+            "id": row["id"],
+            "actor_id": row["actor_id"],
+            "actor_name": row["actor_name"],
+            "code": row["code"],
+            "title": row["title"],
+            "javbus_url": row["javbus_url"],
+            "pub_date": row["pub_date"],
+            "is_watched": row["is_watched"],
+            "score": score,
+            "detected_at": row["detected_at"]
+        })
+
+    if view_mode == "by_actor":
+        # 按演员分组
+        grouped = {}
+        for item in result:
+            actor_name = item["actor_name"]
+            if actor_name not in grouped:
+                grouped[actor_name] = []
+            grouped[actor_name].append(item)
+        return jsonify(grouped)
+
+    return jsonify(result)
+
+
+@app.route("/api/rss/items/<int:item_id>/watch", methods=["POST"])
+def api_rss_item_watch(item_id):
+    """标记已阅"""
+    data = request.get_json()
+    is_watched = data.get("is_watched", True)
+
+    conn = get_db()
+    conn.execute("UPDATE rss_items SET is_watched = ? WHERE id = ?", (is_watched, item_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True})
+
+
+@app.route("/api/rss/items/watch", methods=["POST"])
+def api_rss_items_watch():
+    """批量标记已阅"""
+    data = request.get_json()
+    item_ids = data.get("item_ids", [])
+    actor_id = data.get("actor_id")  # 可选：标记该演员所有未阅
+
+    conn = get_db()
+
+    if actor_id is not None:
+        conn.execute("UPDATE rss_items SET is_watched = 1 WHERE actor_id = ?", (actor_id,))
+    elif item_ids:
+        placeholders = ",".join("?" * len(item_ids))
+        conn.execute(f"UPDATE rss_items SET is_watched = 1 WHERE id IN ({placeholders})", item_ids)
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True})
+
+
+@app.route("/api/rss/refresh", methods=["POST"])
+def api_rss_refresh():
+    """手动刷新 RSS（全部演员）"""
+    results = fetch_all_rss()
+    return jsonify({"success": True, "results": results})
+
+
+@app.route("/api/rss/refresh/<int:actor_id>", methods=["POST"])
+def api_rss_refresh_actor(actor_id):
+    """刷新单个演员的 RSS"""
+    result = fetch_rss(actor_id)
+    return jsonify(result)
+
+
 if __name__ == "__main__":
     init_db()
     print("Syncing Jellyfin on startup...")
     count = sync_jellyfin()
     print(f"Synced {count} movies")
+
+    # 导入演员列表
+    print("Importing actors from Jellyfin...")
+    actor_count = import_actors_from_jellyfin()
+    print(f"Imported {actor_count} new actors")
+
+    # 自动抓取 RSS（如果启用）
+    if AUTO_REFRESH_ON_STARTUP:
+        print("Fetching RSS feeds for all actors with JAVBus ID...")
+        results = fetch_all_rss()
+        success_count = sum(1 for r in results if r["result"].get("success"))
+        print(f"RSS fetch completed: {success_count}/{len(results)} actors updated")
+
     app.run(host="0.0.0.0", port=5002, debug=False, use_reloader=False)

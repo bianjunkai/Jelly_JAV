@@ -18,6 +18,10 @@
                     <span v-if="syncing">同步中...</span>
                     <span v-else>🔄 同步</span>
                 </button>
+                <button @click="calcScores" :disabled="calculating" class="sync-btn score-btn">
+                    <span v-if="calculating">计算中...</span>
+                    <span v-else>📊 计算权重分</span>
+                </button>
                 <span class="stats">共 [[ stats.total ]] 部影片</span>
             </div>
         </header>
@@ -72,6 +76,8 @@
                     <option value="code">按番号排序</option>
                     <option value="year_desc">按年份(新→旧)</option>
                     <option value="year_asc">按年份(旧→新)</option>
+                    <option value="score_desc">按权重分(高→低)</option>
+                    <option value="score_asc">按权重分(低→高)</option>
                 </select>
             </div>
 
@@ -92,6 +98,7 @@
                             <div class="movie-code">[[ movie.code ]]</div>
                             <div class="movie-title" :title="movie.title">[[ movie.title ]]</div>
                             <div class="movie-year">[[ movie.year ]]</div>
+                            <div class="movie-score" v-if="movie.score">[[ movie.score ]]分</div>
                             <div class="movie-tags">
                                 <span
                                     v-for="tag in movie.all_tags"
@@ -236,51 +243,217 @@
                     <div
                         v-for="actor in actors"
                         :key="actor.name"
-                        class="actor-item"
-                        @click="showActorMovies(actor.name)"
+                        :class="['actor-item', { 'has-javbus': rssActors[actor.name] && rssActors[actor.name].javbus_id }]"
+                        @click="showActorDetail(actor.name)"
                     >
                         <span class="actor-name">[[ actor.name ]]</span>
                         <span class="actor-count">[[ actor.count ]] 部</span>
+                        <span v-if="rssActors[actor.name] && rssActors[actor.name].javbus_id" class="javbus-badge">📡</span>
                     </div>
                 </div>
             </div>
 
-            <!-- Actor Detail -->
-            <div v-else-if="currentTab.startsWith('actor_')" class="actor-detail">
+            <!-- Actor Detail Page -->
+            <div v-else-if="currentTab.startsWith('actor_')" class="actor-detail-page">
+                <!-- Back button and header -->
                 <button class="back-btn" @click="currentTab = 'actors'; loadActors()">← 返回演员列表</button>
-                <h2>[[ currentActorName ]] 的影片 ([[ actorMovies.length ]] 部)</h2>
 
-                <!-- Movie Cards Grid for Actor -->
-                <div class="movie-grid">
-                    <div v-for="movie in actorMovies" :key="movie.code" class="movie-card">
-                        <div class="movie-poster">
-                            <img v-if="movie.poster_url" :src="movie.poster_url" :alt="movie.title" @error="handlePosterError($event)">
-                            <svg v-else class="placeholder-icon" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>
-                            </svg>
+                <!-- Actor Profile -->
+                <div class="actor-profile">
+                    <div class="actor-avatar">
+                        <img v-if="actorDetail.avatar_url" :src="actorDetail.avatar_url" :alt="actorDetail.name" @error="handleActorAvatarError($event)">
+                        <svg v-else class="avatar-placeholder" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                        </svg>
+                    </div>
+                    <div class="actor-info-section">
+                        <h2 class="actor-name">[[ actorDetail.name ]]</h2>
+                        <div class="actor-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">影片</span>
+                                <span class="stat-value">[[ actorDetail.movie_count ]] 部</span>
+                            </div>
+                            <div class="stat-item" v-if="actorDetail.last_updated">
+                                <span class="stat-label">RSS更新</span>
+                                <span class="stat-value">[[ formatDate(actorDetail.last_updated) ]]</span>
+                            </div>
                         </div>
-                        <div class="movie-info">
-                            <div class="movie-code">[[ movie.code ]]</div>
-                            <div class="movie-title" :title="movie.title">[[ movie.title ]]</div>
-                            <div class="movie-year">[[ movie.year ]]</div>
-                            <div class="movie-tags">
-                                <span
-                                    v-for="tag in movie.all_tags"
-                                    :key="tag"
-                                    :class="['movie-tag', movie.tags.includes(tag) ? 'active' : 'inactive']"
-                                >
-                                    [[ getShortTag(tag) ]]
-                                </span>
+                        <div class="javbus-config">
+                            <label>JAVBus ID:</label>
+                            <input
+                                type="text"
+                                v-model="actorDetail.javbus_id"
+                                placeholder="输入JAVBus ID"
+                                class="javbus-input-large"
+                            >
+                            <button @click="saveActorJavbusId" class="rss-refresh-small save-btn">
+                                💾 保存
+                            </button>
+                            <button v-if="actorDetail.javbus_id" @click="refreshActorRss" :disabled="rssRefreshing" class="rss-refresh-small">
+                                [[ rssRefreshing ? '刷新中' : '🔄 刷新' ]]
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tabs for Actor Detail -->
+                <div class="actor-tabs">
+                    <button
+                        :class="['actor-tab', { active: actorSubTab === 'movies' }]"
+                        @click="actorSubTab = 'movies'"
+                    >
+                        全部影片
+                    </button>
+                    <button
+                        :class="['actor-tab', { active: actorSubTab === 'rss' }]"
+                        @click="actorSubTab = 'rss'; loadActorRssItems()"
+                    >
+                        RSS订阅 <span v-if="actorRssUnwatched > 0" class="unwatched-badge">[[ actorRssUnwatched ]]</span>
+                    </button>
+                </div>
+
+                <!-- Movies Tab -->
+                <div v-if="actorSubTab === 'movies'" class="actor-movies">
+                    <div class="movie-grid">
+                        <div v-for="movie in actorMovies" :key="movie.code" class="movie-card">
+                            <div class="movie-poster">
+                                <img v-if="movie.poster_url" :src="movie.poster_url" :alt="movie.title" @error="handlePosterError($event)">
+                                <svg v-else class="placeholder-icon" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>
+                                </svg>
+                            </div>
+                            <div class="movie-info">
+                                <div class="movie-code">[[ movie.code ]]</div>
+                                <div class="movie-title" :title="movie.title">[[ movie.title ]]</div>
+                                <div class="movie-year">[[ movie.year ]]</div>
+                                <div class="movie-score" v-if="movie.score">[[ movie.score ]]分</div>
+                                <div class="movie-tags">
+                                    <span
+                                        v-for="tag in movie.all_tags"
+                                        :key="tag"
+                                        :class="['movie-tag', movie.tags.includes(tag) ? 'active' : 'inactive']"
+                                    >
+                                        [[ getShortTag(tag) ]]
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     </div>
+                    <div v-if="actorMovies.length === 0" class="empty">暂无影片</div>
+                </div>
+
+                <!-- RSS Tab -->
+                <div v-if="actorSubTab === 'rss'" class="actor-rss-list">
+                    <div class="rss-actions" v-if="actorRssItems.length > 0">
+                        <button @click="markActorWatched(actorDetail.actor_id)" class="watched-btn">
+                            ✓ 一键已阅
+                        </button>
+                    </div>
+                    <div v-if="actorRssItems.length === 0" class="empty">暂无RSS订阅数据</div>
+                    <div v-for="item in actorRssItems" :key="item.id" :class="['rss-item', { watched: item.is_watched }]">
+                        <input
+                            type="checkbox"
+                            :checked="item.is_watched"
+                            @change="toggleWatch(item.id, $event.target.checked)"
+                            class="rss-checkbox"
+                        >
+                        <div class="rss-item-content">
+                            <div class="rss-item-header">
+                                <a :href="item.javbus_url" target="_blank" class="rss-code">[[ item.code ]]</a>
+                                <span class="rss-score" :title="'权重分: ' + item.score">[[ item.score ]]分</span>
+                            </div>
+                            <div class="rss-item-title" :title="item.title">[[ item.title ]]</div>
+                            <div class="rss-item-date">[[ item.pub_date ]]</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RSS Subscription View -->
+            <div v-else-if="currentTab === 'rss'" class="rss-view">
+                <div class="rss-header">
+                    <div class="section-title">RSS 订阅</div>
+                    <div class="rss-actions">
+                        <button @click="refreshRss" :disabled="rssRefreshing" class="rss-refresh-btn">
+                            [[ rssRefreshing ? '刷新中...' : '🔄 刷新全部' ]]
+                        </button>
+                        <button @click="markAllWatched" :disabled="rssItems.length === 0" class="watched-btn">
+                            ✓ 一键已阅
+                        </button>
+                    </div>
+                </div>
+
+                <!-- View Toggle -->
+                <div class="rss-view-toggle">
+                    <button :class="['toggle-btn', { active: rssViewMode === 'all' }]" @click="rssViewMode = 'all'">
+                        总列表
+                    </button>
+                    <button :class="['toggle-btn', { active: rssViewMode === 'by_actor' }]" @click="rssViewMode = 'by_actor'">
+                        按演员
+                    </button>
+                </div>
+
+                <!-- RSS Items List (All Mode) -->
+                <div v-if="rssViewMode === 'all'" class="rss-list">
+                    <div v-if="rssItems.length === 0" class="empty">暂无订阅数据</div>
+                    <div v-for="item in rssItems" :key="item.id" :class="['rss-item', { watched: item.is_watched }]">
+                        <input
+                            type="checkbox"
+                            :checked="item.is_watched"
+                            @change="toggleWatch(item.id, $event.target.checked)"
+                            class="rss-checkbox"
+                        >
+                        <div class="rss-item-content">
+                            <div class="rss-item-header">
+                                <a :href="item.javbus_url" target="_blank" class="rss-code">[[ item.code ]]</a>
+                                <span class="rss-score" :title="'权重分: ' + item.score">[[ item.score ]]分</span>
+                                <span class="rss-actor">[[ item.actor_name ]]</span>
+                            </div>
+                            <div class="rss-item-title" :title="item.title">[[ item.title ]]</div>
+                            <div class="rss-item-date">[[ item.pub_date ]]</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RSS Items List (By Actor Mode) -->
+                <div v-else class="rss-by-actor">
+                    <div v-for="(items, actorName) in rssItemsByActor" :key="actorName" class="actor-rss-group">
+                        <h3 class="actor-rss-title">
+                            <span class="collapse-toggle" @click="collapsedActors[actorName] = !collapsedActors[actorName]">
+                                [[ collapsedActors[actorName] ? '▶' : '▼' ]]
+                            </span>
+                            [[ actorName ]] ([[ items.length ]] 部)
+                            <button @click="markActorWatched(items[0].actor_id)" class="small-watched-btn">
+                                一键已阅
+                            </button>
+                        </h3>
+                        <div v-show="!collapsedActors[actorName]" class="rss-list">
+                            <div v-for="item in items" :key="item.id" :class="['rss-item', { watched: item.is_watched }]">
+                                <input
+                                    type="checkbox"
+                                    :checked="item.is_watched"
+                                    @change="toggleWatch(item.id, $event.target.checked)"
+                                    class="rss-checkbox"
+                                >
+                                <div class="rss-item-content">
+                                    <div class="rss-item-header">
+                                        <a :href="item.javbus_url" target="_blank" class="rss-code">[[ item.code ]]</a>
+                                        <span class="rss-score" :title="'权重分: ' + item.score">[[ item.score ]]分</span>
+                                    </div>
+                                    <div class="rss-item-title" :title="item.title">[[ item.title ]]</div>
+                                    <div class="rss-item-date">[[ item.pub_date ]]</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-if="Object.keys(rssItemsByActor).length === 0" class="empty">暂无订阅数据</div>
                 </div>
             </div>
         </main>
     </div>
 
     <script>
-        const { createApp, ref, onMounted } = Vue;
+        const { createApp, ref, onMounted, watch } = Vue;
 
         const app = createApp({
             setup() {
@@ -294,7 +467,31 @@
                 const search = ref('');
                 const sortBy = ref('code');
                 const syncing = ref(false);
+                const calculating = ref(false);
                 const stats = ref({ total: 0, javdb_count: 0, javlib_count: 0 });
+
+                // RSS
+                const rssItems = ref([]);
+                const rssItemsByActor = ref({});
+                const rssViewMode = ref('all');
+                const rssRefreshing = ref(false);
+                const rssActors = ref({});  // {name: {javbus_id, id}}
+                const currentRssActorId = ref(null);
+                const collapsedActors = ref({});  // Track collapsed state for each actor
+
+                // Actor detail page
+                const actorDetail = ref({
+                    name: '',
+                    javbus_id: '',
+                    rss_url: '',
+                    last_updated: '',
+                    movie_count: 0,
+                    avatar_url: '',
+                    actor_id: null
+                });
+                const actorSubTab = ref('movies');
+                const actorRssItems = ref([]);
+                const actorRssUnwatched = ref(0);
 
                 // Pagination
                 const currentPage = ref(1);
@@ -305,6 +502,7 @@
                 const tabs = [
                     { id: 'all', name: '全部', icon: '📚' },
                     { id: 'actors', name: '演员', icon: '👤' },
+                    { id: 'rss', name: 'RSS订阅', icon: '📡' },
                     { id: 'javdb', name: 'JavDB TOP250', icon: '🏆' },
                     { id: 'javdb_2025', name: 'JavDB 2025', icon: '🏆' },
                     { id: 'javdb_2024', name: 'JavDB 2024', icon: '🏆' },
@@ -343,6 +541,10 @@
                         return [...list].sort((a, b) => (b.year || '').localeCompare(a.year || ''));
                     } else if (sortBy.value === 'year_asc') {
                         return [...list].sort((a, b) => (a.year || '').localeCompare(b.year || ''));
+                    } else if (sortBy.value === 'score_desc') {
+                        return [...list].sort((a, b) => (b.score || 0) - (a.score || 0));
+                    } else if (sortBy.value === 'score_asc') {
+                        return [...list].sort((a, b) => (a.score || 0) - (b.score || 0));
                     }
                     return list;
                 };
@@ -409,9 +611,157 @@
                     currentTab.value = 'actor_' + encodeURIComponent(actorName);
                 };
 
+                const showActorDetail = async (actorName) => {
+                    currentActorName.value = actorName;
+                    actorSubTab.value = 'movies';
+
+                    // Load actor detail
+                    const detailRes = await axios.get(`/api/actor/${encodeURIComponent(actorName)}/detail`);
+                    actorDetail.value = detailRes.data;
+
+                    // Load actor movies
+                    const moviesRes = await axios.get(`/api/actor/${encodeURIComponent(actorName)}`);
+                    actorMovies.value = sortMovies(moviesRes.data);
+
+                    currentTab.value = 'actor_' + encodeURIComponent(actorName);
+                };
+
+                const saveActorJavbusId = async () => {
+                    if (!actorDetail.value.actor_id) return;
+
+                    await axios.put(`/api/rss/actors/${actorDetail.value.actor_id}`, {
+                        javbus_id: actorDetail.value.javbus_id
+                    });
+                };
+
+                const refreshActorRss = async () => {
+                    if (!actorDetail.value.actor_id) return;
+
+                    rssRefreshing.value = true;
+                    try {
+                        // Only refresh current actor's RSS
+                        await axios.post(`/api/rss/refresh/${actorDetail.value.actor_id}`);
+                        // Reload actor detail to get updated last_updated
+                        const detailRes = await axios.get(`/api/actor/${encodeURIComponent(actorDetail.value.name)}/detail`);
+                        actorDetail.value = detailRes.data;
+
+                        // Reload RSS items if on RSS tab
+                        if (actorSubTab.value === 'rss') {
+                            await loadActorRssItems();
+                        }
+                    } finally {
+                        rssRefreshing.value = false;
+                    }
+                };
+
+                const loadActorRssItems = async () => {
+                    if (!actorDetail.value.actor_id) return;
+
+                    const res = await axios.get('/api/rss/items', {
+                        params: { actor_id: actorDetail.value.actor_id }
+                    });
+                    actorRssItems.value = res.data;
+                    actorRssUnwatched.value = res.data.filter(item => !item.is_watched).length;
+                };
+
+                const formatDate = (dateStr) => {
+                    if (!dateStr) return '-';
+                    try {
+                        const date = new Date(dateStr);
+                        return date.toLocaleDateString('zh-CN');
+                    } catch {
+                        return dateStr;
+                    }
+                };
+
+                const handleActorAvatarError = (event) => {
+                    event.target.style.display = 'none';
+                    const placeholder = event.target.nextElementSibling;
+                    if (placeholder) {
+                        placeholder.style.display = 'block';
+                    }
+                };
+
                 const loadStats = async () => {
                     const res = await axios.get('/api/stats');
                     stats.value = res.data;
+                };
+
+                const loadRssItems = async () => {
+                    const view = rssViewMode.value;
+                    const params = { view };
+                    if (currentRssActorId.value) {
+                        params.actor_id = currentRssActorId.value;
+                    }
+                    const res = await axios.get('/api/rss/items', { params });
+                    if (view === 'by_actor') {
+                        rssItemsByActor.value = res.data;
+                    } else {
+                        rssItems.value = res.data;
+                    }
+                };
+
+                const refreshRss = async () => {
+                    rssRefreshing.value = true;
+                    try {
+                        await axios.post('/api/rss/refresh');
+                        await loadRssItems();
+                    } finally {
+                        rssRefreshing.value = false;
+                    }
+                };
+
+                const toggleWatch = async (itemId, isWatched) => {
+                    await axios.post(`/api/rss/items/${itemId}/watch`, { is_watched: isWatched });
+                    await loadRssItems();
+                };
+
+                const markAllWatched = async () => {
+                    await axios.post('/api/rss/items/watch', {});
+                    await loadRssItems();
+                };
+
+                const markActorWatched = async (actorId) => {
+                    await axios.post('/api/rss/items/watch', { actor_id: actorId });
+                    await loadRssItems();
+                };
+
+                const loadRssActors = async () => {
+                    const res = await axios.get('/api/rss/actors');
+                    const actorsMap = {};
+                    for (const actor of res.data) {
+                        actorsMap[actor.name] = {
+                            javbus_id: actor.javbus_id,
+                            id: actor.id,
+                            has_rss: actor.has_rss
+                        };
+                    }
+                    rssActors.value = actorsMap;
+                };
+
+                const updateActorJavbusId = async (actorName, javbusId) => {
+                    // Find or create the actor in the database
+                    let actorData = rssActors.value[actorName];
+                    if (!actorData) {
+                        // Create the actor first
+                        await axios.post('/api/rss/actors', { name: actorName });
+                        await loadRssActors();
+                        actorData = rssActors.value[actorName];
+                    }
+
+                    if (actorData && actorData.id) {
+                        await axios.put(`/api/rss/actors/${actorData.id}`, { javbus_id: javbusId });
+                        await loadRssActors();
+                    }
+                };
+
+                const showActorRss = async (actorName) => {
+                    const actorData = rssActors.value[actorName];
+                    if (actorData && actorData.id) {
+                        currentRssActorId.value = actorData.id;
+                        currentTab.value = 'rss';
+                        await loadRssItems();
+                    }
                 };
 
                 const sync = async () => {
@@ -426,6 +776,17 @@
                     }
                 };
 
+                const calcScores = async () => {
+                    calculating.value = true;
+                    try {
+                        await axios.post('/api/calc_scores');
+                        await loadMovies();
+                        alert('权重分计算完成！');
+                    } finally {
+                        calculating.value = false;
+                    }
+                };
+
                 const switchTab = async (tabId) => {
                     currentTab.value = tabId;
                     currentPage.value = 1;
@@ -435,11 +796,19 @@
                         await loadMissing();
                     } else if (tabId === 'actors') {
                         await loadActors();
+                        await loadRssActors();
+                    } else if (tabId === 'rss') {
+                        await loadRssItems();
                     } else if (tabId.startsWith('actor_')) {
                         const actorName = decodeURIComponent(tabId.substring(7));
                         currentActorName.value = actorName;
+                        // Load actor detail
+                        const detailRes = await axios.get(`/api/actor/${encodeURIComponent(actorName)}/detail`);
+                        actorDetail.value = detailRes.data;
+                        // Load actor movies
                         const res = await axios.get(`/api/actor/${encodeURIComponent(actorName)}`);
                         actorMovies.value = sortMovies(res.data);
+                        actorSubTab.value = 'movies';
                     } else {
                         await loadList(tabId);
                     }
@@ -467,7 +836,14 @@
 
                 onMounted(async () => {
                     await loadStats();
-                    await loadMovies();
+                    await switchTab('all');
+                });
+
+                // Watch for RSS view mode changes
+                watch(rssViewMode, async () => {
+                    if (currentTab.value === 'rss') {
+                        await loadRssItems();
+                    }
                 });
 
                 return {
@@ -481,23 +857,52 @@
                     search,
                     sortBy,
                     syncing,
+                    calculating,
                     stats,
                     tabs,
                     currentPage,
                     pageSize,
                     totalPages,
                     totalItems,
+                    // RSS
+                    rssItems,
+                    rssItemsByActor,
+                    rssViewMode,
+                    rssRefreshing,
+                    rssActors,
+                    currentRssActorId,
+                    collapsedActors,
+                    // Actor detail
+                    actorDetail,
+                    actorSubTab,
+                    actorRssItems,
+                    actorRssUnwatched,
                     getShortTag,
                     getTabTitle,
                     loadMovies,
                     handleSearch,
                     loadActors,
                     showActorMovies,
+                    showActorDetail,
                     sync,
+                    calcScores,
                     switchTab,
                     goToPage,
                     changePageSize,
-                    handlePosterError
+                    handlePosterError,
+                    loadRssItems,
+                    refreshRss,
+                    toggleWatch,
+                    markAllWatched,
+                    markActorWatched,
+                    loadRssActors,
+                    updateActorJavbusId,
+                    showActorRss,
+                    saveActorJavbusId,
+                    refreshActorRss,
+                    loadActorRssItems,
+                    formatDate,
+                    handleActorAvatarError
                 };
             }
         });
