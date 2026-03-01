@@ -9,7 +9,7 @@ import time
 import queue
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request, Response
-from config import JELLYFIN_URL, JELLYFIN_API_KEY, RSSHUB_URL, JAVBUS_DOMAIN, JAVBUS_LANGUAGE, AUTO_REFRESH_ON_STARTUP, RSS_UPDATE_ON_STARTUP, RSS_REQUEST_DELAY, RSS_MAX_RETRIES, RSS_RETRY_BASE_DELAY
+from config import JELLYFIN_URL, JELLYFIN_API_KEY, RSSHUB_URL, JAVBUS_DOMAINS, JAVBUS_LANGUAGE, AUTO_REFRESH_ON_STARTUP, RSS_UPDATE_ON_STARTUP, RSS_REQUEST_DELAY, RSS_MAX_RETRIES, RSS_RETRY_BASE_DELAY
 import javdb_scraper
 
 app = Flask(__name__)
@@ -306,15 +306,17 @@ def calculate_movie_score(code, actors_str, javdb_score=None):
 
 
 def build_rss_url(javbus_id):
-    """构建 RSS 订阅链接"""
+    """构建 RSS 订阅链接，支持多个域名"""
     if not javbus_id:
         return None
 
     lang = JAVBUS_LANGUAGE if JAVBUS_LANGUAGE else ""
     url = f"{RSSHUB_URL}/javbus/star/{javbus_id}"
     params = []
-    if JAVBUS_DOMAIN:
-        params.append(f"domain={JAVBUS_DOMAIN}")
+    # 支持多个域名，RSSHub 会自动尝试下一个
+    if JAVBUS_DOMAINS:
+        for domain in JAVBUS_DOMAINS:
+            params.append(f"domain={domain}")
     if lang:
         params.append(f"lang={lang}")
     if params:
@@ -322,8 +324,8 @@ def build_rss_url(javbus_id):
     return url
 
 
-def fetch_rss(actor_id, retry_count=0):
-    """抓取指定演员的 RSS 订阅，带有 429/503 防护机制"""
+def fetch_rss(actor_id, retry_count=0, domain_index=0):
+    """抓取指定演员的 RSS 订阅，带有 429/503 防护机制和域名轮换"""
     conn = get_db()
     actor = conn.execute("SELECT id, name, javbus_id FROM actors WHERE id = ?", (actor_id,)).fetchone()
 
@@ -331,7 +333,20 @@ def fetch_rss(actor_id, retry_count=0):
         conn.close()
         return {"success": False, "error": "Actor not found or no javbus_id", "actor_id": actor_id}
 
-    rss_url = build_rss_url(actor["javbus_id"])
+    # 使用当前域名构建URL
+    current_domains = JAVBUS_DOMAINS if JAVBUS_DOMAINS else ["busjav.cyou"]
+    current_domain = current_domains[domain_index] if domain_index < len(current_domains) else current_domains[0]
+
+    lang = JAVBUS_LANGUAGE if JAVBUS_LANGUAGE else ""
+    rss_url = f"{RSSHUB_URL}/javbus/star/{actor['javbus_id']}"
+    params = []
+    if current_domain:
+        params.append(f"domain={current_domain}")
+    if lang:
+        params.append(f"lang={lang}")
+    if params:
+        rss_url += "?" + "&".join(params)
+
     if not rss_url:
         conn.close()
         return {"success": False, "error": "Invalid RSS URL", "actor_id": actor_id}
@@ -407,12 +422,17 @@ def fetch_rss(actor_id, retry_count=0):
 
         return {"success": True, "items_added": items_added, "actor_id": actor_id}
     except requests.exceptions.RequestException as e:
+        # 检查是否是超时错误，尝试下一个域名
+        if "timeout" in str(e).lower() and domain_index < len(JAVBUS_DOMAINS) - 1:
+            print(f"Timeout for actor {actor_id} with domain {current_domain}, trying next domain...")
+            return fetch_rss(actor_id, 0, domain_index + 1)
+
         # 网络错误也尝试重试
         if retry_count < RSS_MAX_RETRIES:
             delay = RSS_RETRY_BASE_DELAY * (2 ** retry_count)
             print(f"Network error for actor {actor_id}: {e}, retrying in {delay}s (attempt {retry_count + 1}/{RSS_MAX_RETRIES})")
             time.sleep(delay)
-            return fetch_rss(actor_id, retry_count + 1)
+            return fetch_rss(actor_id, retry_count + 1, domain_index)
         conn.close()
         print(f"RSS fetch error for actor {actor_id}: {e}")
         return {"success": False, "error": f"Network error: {str(e)}", "actor_id": actor_id}
@@ -422,7 +442,7 @@ def fetch_rss(actor_id, retry_count=0):
             delay = RSS_RETRY_BASE_DELAY * (2 ** retry_count)
             print(f"Error for actor {actor_id}: {e}, retrying in {delay}s (attempt {retry_count + 1}/{RSS_MAX_RETRIES})")
             time.sleep(delay)
-            return fetch_rss(actor_id, retry_count + 1)
+            return fetch_rss(actor_id, retry_count + 1, domain_index)
         conn.close()
         print(f"RSS fetch error for actor {actor_id}: {e}")
         return {"success": False, "error": str(e), "actor_id": actor_id}
@@ -1078,7 +1098,7 @@ def api_rss_items():
             FROM rss_items r
             JOIN actors a ON r.actor_id = a.id
             WHERE r.actor_id = ?
-            ORDER BY r.is_watched ASC, r.score DESC, r.detected_at DESC
+            ORDER BY r.is_watched ASC, r.pub_date DESC
         """, (actor_id,)).fetchall()
     else:
         items = conn.execute("""
@@ -1086,7 +1106,7 @@ def api_rss_items():
                    r.is_watched, r.score, r.detected_at, a.name as actor_name
             FROM rss_items r
             JOIN actors a ON r.actor_id = a.id
-            ORDER BY r.is_watched ASC, r.score DESC, r.detected_at DESC
+            ORDER BY r.is_watched ASC, r.pub_date DESC
         """).fetchall()
 
     conn.close()
