@@ -3,14 +3,16 @@ import sqlite3
 import requests
 import re
 import os
-import xml.etree.ElementTree as ET
 import threading
 import time
 import queue
+import random
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request, Response
-from config import JELLYFIN_URL, JELLYFIN_API_KEY, RSSHUB_URL, JAVBUS_DOMAINS, JAVBUS_LANGUAGE, AUTO_REFRESH_ON_STARTUP, RSS_UPDATE_ON_STARTUP, RSS_REQUEST_DELAY, RSS_MAX_RETRIES, RSS_RETRY_BASE_DELAY
+from config import JELLYFIN_URL, JELLYFIN_API_KEY, JAVBUS_DOMAINS, JAVBUS_LANGUAGE, JAVDB_DOMAINS, AUTO_REFRESH_ON_STARTUP, RSS_UPDATE_ON_STARTUP, RSS_REQUEST_DELAY, RSS_MAX_RETRIES, RSS_RETRY_BASE_DELAY, SCRAPE_MIN_DELAY, SCRAPE_MAX_DELAY, SCRAPE_MAX_RETRIES, SCRAPE_ON_STARTUP, SCRAPE_PAGES_LIMIT
 import javdb_scraper
+from scrapers.javbus_scraper import JavBusScraper
+from scrapers.javdb_scraper import JavDBApiScraper
 
 app = Flask(__name__)
 DB_PATH = "data.db"
@@ -91,12 +93,24 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
             javbus_id TEXT,
+            javdb_id TEXT,
+            scrape_status TEXT DEFAULT 'idle',
             rss_url TEXT,
             is_watched BOOLEAN DEFAULT 0,
             last_updated TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # 添加 javdb_id 和 scrape_status 列（如果不存在）
+    try:
+        conn.execute("ALTER TABLE actors ADD COLUMN javdb_id TEXT")
+    except:
+        pass
+    try:
+        conn.execute("ALTER TABLE actors ADD COLUMN scrape_status TEXT DEFAULT 'idle'")
+    except:
+        pass
 
     # 2. rss_items 表 - RSS 抓取的影片记录
     conn.execute("""
@@ -121,6 +135,22 @@ def init_db():
             actor_id INTEGER NOT NULL,
             tag_name TEXT NOT NULL,
             UNIQUE(actor_id, tag_name)
+        )
+    """)
+
+    # 4. actor_releases 表 - 演员新片追踪
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS actor_releases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_id INTEGER NOT NULL,
+            code TEXT NOT NULL,
+            title TEXT,
+            release_date TEXT,
+            source_type TEXT DEFAULT 'javbus',
+            is_watched BOOLEAN DEFAULT 0,
+            is_released BOOLEAN DEFAULT 1,
+            detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(actor_id, code, source_type)
         )
     """)
 
@@ -305,27 +335,39 @@ def calculate_movie_score(code, actors_str, javdb_score=None):
     return score
 
 
-def build_rss_url(javbus_id):
-    """构建 RSS 订阅链接，支持多个域名"""
-    if not javbus_id:
-        return None
+def get_actor_existing_codes(actor_id):
+    """获取该演员已知的所有影片码"""
+    codes = set()
+    conn = get_db()
 
-    lang = JAVBUS_LANGUAGE if JAVBUS_LANGUAGE else ""
-    url = f"{RSSHUB_URL}/javbus/star/{javbus_id}"
-    params = []
-    # 支持多个域名，RSSHub 会自动尝试下一个
-    if JAVBUS_DOMAINS:
-        for domain in JAVBUS_DOMAINS:
-            params.append(f"domain={domain}")
-    if lang:
-        params.append(f"lang={lang}")
-    if params:
-        url += "?" + "&".join(params)
-    return url
+    # 从 rss_items 获取
+    rows = conn.execute("SELECT code FROM rss_items WHERE actor_id = ?", (actor_id,))
+    for row in rows:
+        codes.add(row['code'])
+
+    # 从 movies 获取该演员参演的影片
+    actor = conn.execute("SELECT name FROM actors WHERE id = ?", (actor_id,)).fetchone()
+    if actor:
+        rows = conn.execute("SELECT code, actors FROM movies WHERE actors LIKE ?", (f"%{actor['name']}%",))
+        for row in rows:
+            codes.add(row['code'])
+
+    # 从 actor_releases 获取
+    rows = conn.execute("SELECT code FROM actor_releases WHERE actor_id = ?", (actor_id,))
+    for row in rows:
+        codes.add(row['code'])
+
+    conn.close()
+    return codes
 
 
-def fetch_rss(actor_id, retry_count=0, domain_index=0):
-    """抓取指定演员的 RSS 订阅，带有 429/503 防护机制和域名轮换"""
+def scrape_actor_releases(actor_id, limit_pages=2):
+    """
+    直接爬取 JavBus 演员页面获取新片
+    - 只爬取前N页（最新影片）
+    - 与现有 rss_items 合并去重
+    - 已存在的影片不重复爬取详情
+    """
     conn = get_db()
     actor = conn.execute("SELECT id, name, javbus_id FROM actors WHERE id = ?", (actor_id,)).fetchone()
 
@@ -333,119 +375,62 @@ def fetch_rss(actor_id, retry_count=0, domain_index=0):
         conn.close()
         return {"success": False, "error": "Actor not found or no javbus_id", "actor_id": actor_id}
 
-    # 使用当前域名构建URL
-    current_domains = JAVBUS_DOMAINS if JAVBUS_DOMAINS else ["busjav.cyou"]
-    current_domain = current_domains[domain_index] if domain_index < len(current_domains) else current_domains[0]
+    # 获取该演员已知的影片码
+    existing_codes = get_actor_existing_codes(actor_id)
+    conn.close()
 
-    lang = JAVBUS_LANGUAGE if JAVBUS_LANGUAGE else ""
-    rss_url = f"{RSSHUB_URL}/javbus/star/{actor['javbus_id']}"
-    params = []
-    if current_domain:
-        params.append(f"domain={current_domain}")
-    if lang:
-        params.append(f"lang={lang}")
-    if params:
-        rss_url += "?" + "&".join(params)
-
-    if not rss_url:
-        conn.close()
-        return {"success": False, "error": "Invalid RSS URL", "actor_id": actor_id}
+    scraper = JavBusScraper(domains=JAVBUS_DOMAINS, min_delay=SCRAPE_MIN_DELAY, max_delay=SCRAPE_MAX_DELAY)
+    new_items = []
 
     try:
-        resp = requests.get(rss_url, timeout=30)
+        # 只爬取指定页数（最新内容）
+        for page in range(1, limit_pages + 1):
+            result = scraper.get_actor_page(actor["javbus_id"], page)
+            movies = result.get('movies', [])
 
-        # Handle HTTP errors that should trigger retry
-        retryable_errors = {
-            429: "Rate limited (429)",
-            503: "Service unavailable (503)",
-            502: "Bad gateway (502)",
-            504: "Gateway timeout (504)"
-        }
+            for movie in movies:
+                if movie['code'] not in existing_codes:
+                    # 新影片，存入 actor_releases
+                    new_items.append(movie)
+                    existing_codes.add(movie['code'])  # 防止同一页重复
 
-        if resp.status_code in retryable_errors:
-            if retry_count < RSS_MAX_RETRIES:
-                delay = RSS_RETRY_BASE_DELAY * (2 ** retry_count)  # 5, 10, 20 seconds
-                error_name = retryable_errors[resp.status_code]
-                print(f"{error_name} for actor {actor_id}, retrying in {delay}s (attempt {retry_count + 1}/{RSS_MAX_RETRIES})")
-                conn.close()
-                time.sleep(delay)
-                return fetch_rss(actor_id, retry_count + 1)
-            else:
-                conn.close()
-                return {"success": False, "error": f"{retryable_errors[resp.status_code]} - max retries exceeded", "actor_id": actor_id, "retry_count": retry_count}
+            if not result.get('has_next'):
+                break
 
-        resp.raise_for_status()
+            # 页面间延迟
+            time.sleep(random.uniform(SCRAPE_MIN_DELAY, SCRAPE_MAX_DELAY))
 
-        # 解析 RSS XML
-        root = ET.fromstring(resp.content)
-        items_added = 0
+    finally:
+        scraper.close()
 
-        # Get all existing codes from movies table for this actor
-        existing_codes = set()
-        cursor = conn.execute("SELECT code, actors FROM movies")
-        for row in cursor:
-            if row["actors"]:
-                actors = [a.strip() for a in row["actors"].split(",")]
-                if actor["name"] in actors:
-                    existing_codes.add(row["code"])
+    # 批量写入数据库
+    if new_items:
+        conn = get_db()
+        for movie in new_items:
+            # 检查是否已在 Jellyfin
+            movie_row = conn.execute("SELECT code FROM movies WHERE code = ?", (movie['code'],)).fetchone()
+            is_released = 1 if movie_row else 0
 
-        for item in root.findall(".//item"):
-            title = item.find("title")
-            title_text = title.text if title is not None else ""
+            try:
+                conn.execute("""
+                    INSERT OR IGNORE INTO actor_releases
+                    (actor_id, code, title, release_date, source_type, is_released, detected_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (actor_id, movie['code'], movie.get('title', ''), movie.get('release_date', ''),
+                      movie.get('source_type', 'javbus'), is_released, datetime.now().isoformat()))
+            except Exception as e:
+                pass  # 忽略重复
 
-            link = item.find("link")
-            link_text = link.text if link is not None else ""
-
-            pub_date = item.find("pubDate")
-            pub_date_text = pub_date.text if pub_date is not None else ""
-
-            # 从标题提取番号
-            code = extract_code(title_text)
-
-            if code:
-                # Check if this code exists in the movies table for this actor
-                is_watched = 1 if code in existing_codes else 0
-
-                try:
-                    conn.execute("""
-                        INSERT OR IGNORE INTO rss_items (actor_id, code, title, javbus_url, pub_date, detected_at, is_watched)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (actor_id, code, title_text, link_text, pub_date_text, datetime.now().isoformat(), is_watched))
-                    items_added += 1
-                except Exception as e:
-                    pass  # 忽略重复
-
-        # 更新 actor 的 last_updated
-        conn.execute("UPDATE actors SET last_updated = ? WHERE id = ?", (datetime.now().isoformat(), actor_id))
         conn.commit()
         conn.close()
 
-        return {"success": True, "items_added": items_added, "actor_id": actor_id}
-    except requests.exceptions.RequestException as e:
-        # 检查是否是超时错误，尝试下一个域名
-        if "timeout" in str(e).lower() and domain_index < len(JAVBUS_DOMAINS) - 1:
-            print(f"Timeout for actor {actor_id} with domain {current_domain}, trying next domain...")
-            return fetch_rss(actor_id, 0, domain_index + 1)
+    return {"success": True, "items_added": len(new_items), "actor_id": actor_id}
 
-        # 网络错误也尝试重试
-        if retry_count < RSS_MAX_RETRIES:
-            delay = RSS_RETRY_BASE_DELAY * (2 ** retry_count)
-            print(f"Network error for actor {actor_id}: {e}, retrying in {delay}s (attempt {retry_count + 1}/{RSS_MAX_RETRIES})")
-            time.sleep(delay)
-            return fetch_rss(actor_id, retry_count + 1, domain_index)
-        conn.close()
-        print(f"RSS fetch error for actor {actor_id}: {e}")
-        return {"success": False, "error": f"Network error: {str(e)}", "actor_id": actor_id}
-    except Exception as e:
-        # 其他错误也尝试重试
-        if retry_count < RSS_MAX_RETRIES:
-            delay = RSS_RETRY_BASE_DELAY * (2 ** retry_count)
-            print(f"Error for actor {actor_id}: {e}, retrying in {delay}s (attempt {retry_count + 1}/{RSS_MAX_RETRIES})")
-            time.sleep(delay)
-            return fetch_rss(actor_id, retry_count + 1, domain_index)
-        conn.close()
-        print(f"RSS fetch error for actor {actor_id}: {e}")
-        return {"success": False, "error": str(e), "actor_id": actor_id}
+
+def fetch_rss(actor_id, retry_count=0, domain_index=0):
+    """抓取指定演员的 RSS 订阅（现在使用直接爬虫，不再依赖 RSSHub）"""
+    # 使用新的 scraper 函数获取新片
+    return scrape_actor_releases(actor_id, limit_pages=SCRAPE_PAGES_LIMIT)
 
 
 def fetch_all_rss_background():
@@ -470,7 +455,7 @@ def fetch_all_rss_background():
         if idx > 0:
             time.sleep(RSS_REQUEST_DELAY)
 
-        result = fetch_rss(actor["id"])
+        result = scrape_actor_releases(actor["id"], limit_pages=SCRAPE_PAGES_LIMIT)
         is_success = result.get("success", False)
 
         if is_success:
@@ -483,8 +468,7 @@ def fetch_all_rss_background():
             "actor_name": actor["name"],
             "success": is_success,
             "items_added": result.get("items_added", 0),
-            "error": result.get("error", ""),
-            "retry_count": result.get("retry_count", 0)
+            "error": result.get("error", "")
         })
 
     rss_update_state["is_running"] = False
@@ -496,7 +480,7 @@ def fetch_all_rss_background():
         "fail": fail_count
     }
 
-    print(f"RSS background fetch completed: {success_count}/{total_actors} actors updated, {fail_count} failed")
+    print(f"Scraper background fetch completed: {success_count}/{total_actors} actors updated, {fail_count} failed")
 
 
 def fetch_all_rss():
@@ -507,7 +491,7 @@ def fetch_all_rss():
 
     results = []
     for actor in actors:
-        result = fetch_rss(actor["id"])
+        result = scrape_actor_releases(actor["id"], limit_pages=SCRAPE_PAGES_LIMIT)
         results.append({
             "actor_id": actor["id"],
             "actor_name": actor["name"],
@@ -515,6 +499,56 @@ def fetch_all_rss():
         })
 
     return results
+
+
+def scrape_all_actors_releases():
+    """后台爬取所有演员的新片（在后台线程中运行）"""
+    global rss_update_state
+
+    rss_update_state["is_running"] = True
+    rss_update_state["is_complete"] = False
+    rss_update_state["start_time"] = datetime.now().isoformat()
+    rss_update_state["results"] = []
+
+    conn = get_db()
+    actors = conn.execute("SELECT id, name, javbus_id FROM actors WHERE javbus_id IS NOT NULL AND javbus_id != ''").fetchall()
+    conn.close()
+
+    total_actors = len(actors)
+    success_count = 0
+    fail_count = 0
+
+    for idx, actor in enumerate(actors):
+        # Add delay between requests (skip first request)
+        if idx > 0:
+            time.sleep(random.uniform(SCRAPE_MIN_DELAY, SCRAPE_MAX_DELAY))
+
+        result = scrape_actor_releases(actor["id"], limit_pages=SCRAPE_PAGES_LIMIT)
+        is_success = result.get("success", False)
+
+        if is_success:
+            success_count += 1
+        else:
+            fail_count += 1
+
+        rss_update_state["results"].append({
+            "actor_id": actor["id"],
+            "actor_name": actor["name"],
+            "success": is_success,
+            "items_added": result.get("items_added", 0),
+            "error": result.get("error", "")
+        })
+
+    rss_update_state["is_running"] = False
+    rss_update_state["is_complete"] = True
+    rss_update_state["end_time"] = datetime.now().isoformat()
+    rss_update_state["summary"] = {
+        "total": total_actors,
+        "success": success_count,
+        "fail": fail_count
+    }
+
+    print(f"Actor releases scraping completed: {success_count}/{total_actors} actors processed, {fail_count} failed")
 
 
 def get_movies_with_tags():
@@ -657,6 +691,24 @@ def api_movies():
             for m in movies
             if search in m["code"].lower() or search in m["actors"].lower()
         ]
+
+    # 排序：默认按 score 降序
+    sort_by = request.args.get("sort", "score")
+    order = request.args.get("order", "desc")
+
+    def get_sort_key(m):
+        if sort_by == "score":
+            return m.get("score", 0) or 0
+        elif sort_by == "code":
+            return m.get("code", "")
+        elif sort_by == "title":
+            return m.get("title", "")
+        elif sort_by == "year":
+            return m.get("year", "")
+        return 0
+
+    reverse = order == "desc"
+    movies.sort(key=get_sort_key, reverse=reverse)
 
     # 分页
     page = int(request.args.get("page", 1))
@@ -1098,7 +1150,6 @@ def api_rss_items():
             FROM rss_items r
             JOIN actors a ON r.actor_id = a.id
             WHERE r.actor_id = ?
-            ORDER BY r.is_watched ASC, r.pub_date DESC
         """, (actor_id,)).fetchall()
     else:
         items = conn.execute("""
@@ -1106,10 +1157,22 @@ def api_rss_items():
                    r.is_watched, r.score, r.detected_at, a.name as actor_name
             FROM rss_items r
             JOIN actors a ON r.actor_id = a.id
-            ORDER BY r.is_watched ASC, r.pub_date DESC
         """).fetchall()
 
     conn.close()
+
+    # 将pub_date字符串转换为日期对象进行排序
+    def parse_pub_date(pub_date_str):
+        if pub_date_str:
+            try:
+                from email.utils import parsedate_to_datetime
+                return parsedate_to_datetime(pub_date_str)
+            except:
+                return datetime(1970, 1, 1)
+        return datetime(1970, 1, 1)
+
+    # 排序：未读的在前，已读的在后；未读的按日期从近到远排序
+    items = sorted(items, key=lambda x: (x["is_watched"], -parse_pub_date(x["pub_date"]).timestamp()))
 
     result = []
     for row in items:
@@ -1235,6 +1298,84 @@ def api_rss_status():
         "summary": rss_update_state.get("summary", None),
         "results": rss_update_state["results"][-50:] if rss_update_state["results"] else []  # Return last 50 results
     })
+
+
+# ========== Actor Releases (Scraper) API Endpoints ==========
+
+@app.route("/api/actors/<int:actor_id>/scrape", methods=["POST"])
+def api_actor_scrape(actor_id):
+    """爬取单个演员的新片（增量，最多2页）"""
+    result = scrape_actor_releases(actor_id, limit_pages=SCRAPE_PAGES_LIMIT)
+    return jsonify(result)
+
+
+@app.route("/api/actors/releases", methods=["GET"])
+def api_actor_releases():
+    """获取所有演员的未收录影片列表"""
+    actor_id = request.args.get("actor_id", type=int)
+    unreleased_only = request.args.get("unreleased", "0") == "1"
+
+    conn = get_db()
+
+    if actor_id:
+        items = conn.execute("""
+            SELECT r.id, r.actor_id, r.code, r.title, r.release_date, r.source_type,
+                   r.is_watched, r.is_released, r.detected_at, a.name as actor_name
+            FROM actor_releases r
+            JOIN actors a ON r.actor_id = a.id
+            WHERE r.actor_id = ?
+            ORDER BY r.detected_at DESC
+        """, (actor_id,)).fetchall()
+    else:
+        items = conn.execute("""
+            SELECT r.id, r.actor_id, r.code, r.title, r.release_date, r.source_type,
+                   r.is_watched, r.is_released, r.detected_at, a.name as actor_name
+            FROM actor_releases r
+            JOIN actors a ON r.actor_id = a.id
+            ORDER BY r.detected_at DESC
+        """).fetchall()
+
+    conn.close()
+
+    result = []
+    for row in items:
+        # Skip released items if filtering
+        if unreleased_only and row["is_released"]:
+            continue
+
+        result.append({
+            "id": row["id"],
+            "actor_id": row["actor_id"],
+            "actor_name": row["actor_name"],
+            "code": row["code"],
+            "title": row["title"],
+            "release_date": row["release_date"],
+            "source_type": row["source_type"],
+            "is_watched": row["is_watched"],
+            "is_released": bool(row["is_released"]),
+            "detected_at": row["detected_at"]
+        })
+
+    return jsonify(result)
+
+
+@app.route("/api/releases/watch", methods=["POST"])
+def api_release_watch():
+    """标记影片已看"""
+    data = request.get_json()
+    release_ids = data.get("release_ids", [])
+    is_watched = data.get("is_watched", True)
+
+    conn = get_db()
+
+    if release_ids:
+        placeholders = ",".join("?" * len(release_ids))
+        conn.execute(f"UPDATE actor_releases SET is_watched = ? WHERE id IN ({placeholders})", [is_watched] + release_ids)
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True})
 
 
 # ========== JavDB Score API Endpoints ==========
@@ -1433,6 +1574,12 @@ if __name__ == "__main__":
         print("Starting background RSS fetch (will not block web access)...")
         rss_thread = threading.Thread(target=fetch_all_rss_background, daemon=True)
         rss_thread.start()
+
+    # 启动时自动爬取演员新片
+    if SCRAPE_ON_STARTUP:
+        print("Starting background actor releases scraping...")
+        scrape_thread = threading.Thread(target=scrape_all_actors_releases, daemon=True)
+        scrape_thread.start()
 
     # 启动 Flask 应用
     print("Starting web server on http://0.0.0.0:5002")

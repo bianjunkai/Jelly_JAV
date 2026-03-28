@@ -1,104 +1,75 @@
-# Jellyfin JAV 电影管理系统
+# JAV Manager
 
-从 Jellyfin 同步 JAV 电影数据，展示榜单信息，管理电影库的 Web 应用。
+个人 JAV 影片管理系统。
 
-## 功能特性
-
-- **Jellyfin 同步**: 自动从 Jellyfin 同步电影数据
-- **榜单管理**: 支持 JavDB、JavLibrary 等榜单
-- **JavDB 评分**: 手动获取影片在 JavDB 的评分
-- **权重分计算**: 根据榜单上榜情况和 JavDB 评分计算权重分
-- **RSS 订阅**: 订阅演员更新，支持后台自动刷新
-- **演员主页**: 查看演员信息及其所有影片
-
-## 技术栈
-
-- **后端**: Python 3.12, Flask
-- **数据库**: SQLite
-- **前端**: HTML + CSS + Vanilla JavaScript (Vue 3)
-- **依赖**: requests, flask, curl_cffi
-
-## 快速开始
-
-### 1. 安装依赖
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. 配置
-
-编辑 `config.py` 文件，配置 Jellyfin 连接信息：
-
-```python
-JELLYFIN_URL = "http://your-jellyfin:8096/"
-JELLYFIN_API_KEY = "your-api-key"
-```
-
-获取 API Key 方法：Jellyfin Dashboard → API Keys → 创建 API Key
-
-### 3. 运行
-
-```bash
-python app.py
-```
-
-访问 http://localhost:5002
-
-## 配置说明
-
-| 配置项 | 说明 |
-|--------|------|
-| JELLYFIN_URL | Jellyfin 服务器地址 |
-| JELLYFIN_API_KEY | Jellyfin API Key |
-| RSSHUB_URL | RSSHub 地址（可选） |
-| JAVBUS_DOMAIN | JAVBus 域名 |
-| RSS_UPDATE_ON_STARTUP | 启动时是否更新 RSS |
-
-## 权重分计算规则
-
-初始分 50 分，根据以下条件调整：
-
-| 条件 | 分数调整 |
-|------|----------|
-| JavDB 评分 ≥ 4.5 | +20 |
-| JavDB 评分 4.2-4.5 | +10 |
-| JavDB 评分 3.9-4.2 | 0 |
-| JavDB 评分 3.5-3.9 | -15 |
-| JavDB 评分 < 3.5 | -25 |
-| 同时上榜 JavDB + JavLibrary | +30 |
-| 单独上榜 | +20 |
-| 上榜年度榜单 | +10 |
-| 多位演员 | +5 |
-| 演员有 JAVBus ID | +15 |
-
-## 目录结构
+## 项目结构
 
 ```
 .
-├── app.py              # 主应用入口
-├── config.py           # 配置文件
-├── data.db             # SQLite 数据库
-├── requirements.txt    # Python 依赖
-├── claude.md          # 开发规范
-├── templates/
-│   └── index.html      # 前端页面
-└── static/
-    └── style.css       # 样式文件
+├── jav-manager/          # ✨ 新版本 (v2.0) - 当前活跃开发
+│   ├── backend/          # Flask 后端
+│   ├── frontend/        # Vue 3 前端
+│   ├── start.py          # 启动脚本
+│   └── README.md         # 详细文档
+│
+├── legacy/              # 📦 旧版本 (v1.0)
+│   ├── app.py           # Flask 单文件应用
+│   ├── scrapers/        # 爬虫模块
+│   ├── templates/       # Jinja2 模板
+│   ├── static/           # 静态文件
+│   ├── venv/            # Python 虚拟环境
+│   ├── *.csv            # 榜单数据
+│   └── data.db          # SQLite 数据库
+│
+├── ARCHITECTURE.md      # 架构设计文档
+├── DESIGN.md            # 技术设计方案
+├── PRD.md               # 需求文档
+└── claude.md            # Claude 项目规范
 ```
 
-## API 端点
+## 快速开始（新版本）
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/` | GET | 首页 |
-| `/api/movies` | GET | 获取电影列表 |
-| `/api/sync` | POST | 同步 Jellyfin |
-| `/api/stats` | GET | 统计信息 |
-| `/api/actors` | GET | 演员列表 |
-| `/api/actor/<name>` | GET | 演员影片 |
-| `/api/test_javdb/<code>` | GET | 获取 JavDB 评分 |
+```bash
+cd jav-manager
 
-## License
+# 安装后端依赖
+cd backend
+pip install -r requirements.txt
 
-MIT
+# 初始化数据库
+python init_db.py
+
+# 启动后端
+python app.py
+
+# 新终端 - 启动前端
+cd ../frontend
+npm install
+npm run dev
+```
+
+访问 http://localhost:5173
+
+## 新版本特性
+
+- 📁 **影片库管理** - 网格/列表视图，支持筛选和排序
+- 🏆 **榜单中心** - JavDB TOP250、年度榜等，支持缺口分析
+- ⭐ **关注演员** - 追踪关注演员的新片和分数变化
+- 📝 **待看清单** - 按来源分组，支持批量操作
+- 📊 **智能报告** - 周报/月报/年报，自动生成
+- 🔍 **评分系统** - JavDB 评分 + 加权分计算
+
+## 技术栈
+
+| 组件 | 技术 |
+|------|------|
+| 后端 | Flask + SQLAlchemy + SQLite |
+| 前端 | Vue 3 + Element Plus + Vite |
+| 爬虫 | httpx + BeautifulSoup |
+
+## 详细文档
+
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - 架构设计
+- [DESIGN.md](./DESIGN.md) - 技术设计方案
+- [PRD.md](./PRD.md) - 需求文档
+- [jav-manager/README.md](./jav-manager/README.md) - 新版本详细文档
