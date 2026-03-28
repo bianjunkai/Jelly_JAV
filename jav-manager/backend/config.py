@@ -10,12 +10,13 @@ DATABASE_URL = os.getenv('DATABASE_URL', f'sqlite:///{os.path.join(BASE_DIR, "da
 
 # 爬虫配置
 JAVDB_DOMAINS = ['javdb.com', 'javdb5.com', 'javdb4.com']
+JAVBUS_DOMAINS = ['javbus.com', 'javbus5.com', 'javbus3.com']
 REQUEST_MIN_DELAY = 3
 REQUEST_MAX_DELAY = 6
 REQUEST_TIMEOUT = 30
 
 # 启动配置
-AUTO_SYNC_ON_STARTUP = True
+AUTO_SYNC_ON_STARTUP = False
 AUTO_UPDATE_SCORES = False
 
 # 评分权重（可配置）

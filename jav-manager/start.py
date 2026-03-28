@@ -8,6 +8,7 @@ import sys
 import subprocess
 import time
 import signal
+import shutil
 
 def main():
     # 获取脚本目录
@@ -37,13 +38,20 @@ def main():
     # 等待后端启动
     time.sleep(3)
 
-    # 启动前端
+    # 启动前端 - 找到 npm
     print("\n[2/2] 启动前端 (Vite)...")
     frontend_dir = os.path.join(script_dir, 'frontend')
 
+    # 找到 npm 命令
+    npm_cmd = shutil.which('npm') or 'npm'
+
+    # 确保前端进程有完整的 PATH
+    frontend_env = os.environ.copy()
+
     frontend_process = subprocess.Popen(
-        ['npm', 'run', 'dev'],
+        [npm_cmd, 'run', 'dev'],
         cwd=frontend_dir,
+        env=frontend_env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT
     )

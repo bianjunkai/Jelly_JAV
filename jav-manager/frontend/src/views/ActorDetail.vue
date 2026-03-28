@@ -1,72 +1,91 @@
 <template>
   <div class="actor-detail-view" v-if="actor">
+    <!-- 页面头部 -->
     <div class="page-header">
-      <el-button text @click="$router.back()">
+      <button class="back-btn" @click="$router.back()">
         <el-icon><ArrowLeft /></el-icon>
-        返回
-      </el-button>
+        <span>返回</span>
+      </button>
     </div>
 
-    <el-card class="actor-profile">
-      <div class="profile-content">
-        <div class="profile-avatar">
-          <img v-if="actor.photo_url" :src="actor.photo_url" :alt="actor.name" />
-          <el-icon v-else size="64"><User /></el-icon>
+    <!-- 演员信息卡片 -->
+    <div class="actor-profile">
+      <div class="profile-avatar">
+        <img v-if="actor.photo_url" :src="actor.photo_url" :alt="actor.name" />
+        <div v-else class="avatar-placeholder">
+          <span class="avatar-initial">{{ actor.name.charAt(0) }}</span>
         </div>
-        <div class="profile-info">
-          <h1 class="actor-name">
-            <span v-if="actor.is_followed" class="followed-star">★</span>
-            {{ actor.name }}
-          </h1>
-          <div class="actor-stats">
-            <div class="stat-item">
-              <span class="stat-value">{{ actor.movie_count }}</span>
-              <span class="stat-label">影片数</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-value">{{ actor.avg_score?.toFixed(1) || '-' }}</span>
-              <span class="stat-label">平均评分</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-value">{{ actor.is_followed ? '已关注' : '未关注' }}</span>
-              <span class="stat-label">关注状态</span>
-            </div>
-          </div>
-          <div class="actor-links">
-            <el-button v-if="actor.javdb_id" size="small" @click="openJavDB">
-              JavDB
-            </el-button>
-            <el-button v-if="actor.javbus_id" size="small" @click="openJavBus">
-              JAVBus
-            </el-button>
-          </div>
-          <div class="actor-actions">
-            <el-button :type="actor.is_followed ? 'default' : 'primary'" @click="toggleFollow">
-              {{ actor.is_followed ? '取消关注' : '关注' }}
-            </el-button>
-          </div>
-        </div>
+        <button
+          v-if="actor.is_followed"
+          class="followed-badge"
+          @click="toggleFollow"
+        >
+          <el-icon><StarFilled /></el-icon>
+          已关注
+        </button>
       </div>
-    </el-card>
+
+      <div class="profile-info">
+        <h1 class="actor-name">{{ actor.name }}</h1>
+
+        <div class="actor-stats">
+          <div class="stat-box">
+            <span class="stat-num">{{ actor.movie_count }}</span>
+            <span class="stat-label">影片数</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-num">{{ actor.avg_score?.toFixed(1) || '-' }}</span>
+            <span class="stat-label">平均评分</span>
+          </div>
+        </div>
+
+        <div class="actor-links">
+          <el-button v-if="actor.javdb_id" size="large" @click="openJavDB">
+            <el-icon><Link /></el-icon>
+            JavDB
+          </el-button>
+          <el-button v-if="actor.javbus_id" size="large" @click="openJavBus">
+            <el-icon><Link /></el-icon>
+            JAVBus
+          </el-button>
+        </div>
+
+        <button
+          class="follow-btn"
+          :class="{ following: actor.is_followed }"
+          @click="toggleFollow"
+        >
+          <el-icon v-if="actor.is_followed"><Check /></el-icon>
+          <el-icon v-else><Plus /></el-icon>
+          {{ actor.is_followed ? '已关注' : '关注此演员' }}
+        </button>
+      </div>
+    </div>
 
     <!-- 标签页 -->
     <el-tabs v-model="activeTab" class="actor-tabs">
       <!-- 影片列表 -->
       <el-tab-pane label="影片" name="movies">
-        <div class="card-grid">
-          <div v-for="movie in actor.movies" :key="movie.code" class="card" @click="showMovieDetail(movie)">
-            <div class="card-poster">
+        <div class="movies-grid">
+          <div
+            v-for="movie in actor.movies"
+            :key="movie.code"
+            class="movie-card"
+            @click="showMovieDetail(movie)"
+          >
+            <div class="movie-poster">
               <img v-if="movie.poster_url" :src="movie.poster_url" :alt="movie.code" />
-              <el-icon v-else size="40"><Picture /></el-icon>
-            </div>
-            <div class="card-info">
-              <div class="card-score">
-                <span v-if="movie.javdb_score" class="score-badge" :class="getScoreClass(movie.javdb_score)">
-                  ★ {{ movie.javdb_score.toFixed(1) }}
-                </span>
+              <div v-else class="poster-placeholder">
+                <el-icon size="32"><Picture /></el-icon>
               </div>
-              <div class="card-code">{{ movie.code }}</div>
-              <div class="card-title">{{ movie.title }}</div>
+              <div v-if="movie.javdb_score" class="score-overlay">
+                <span class="score-star">★</span>
+                <span class="score-value">{{ movie.javdb_score.toFixed(1) }}</span>
+              </div>
+            </div>
+            <div class="movie-info">
+              <h4 class="movie-code">{{ movie.code }}</h4>
+              <p class="movie-title">{{ movie.title }}</p>
             </div>
           </div>
         </div>
@@ -76,16 +95,29 @@
       <el-tab-pane label="榜单成绩" name="charts">
         <div v-if="actor.chart_appearances?.length" class="chart-appearances">
           <div v-for="(items, chartName) in groupedChartAppearances" :key="chartName" class="chart-group">
-            <div class="chart-group-header">{{ chartName }}: {{ items.length }} 部</div>
+            <div class="chart-header">
+              <el-icon><Trophy /></el-icon>
+              <h4>{{ chartName }}</h4>
+              <span class="chart-count">{{ items.length }} 部</span>
+            </div>
             <div class="chart-items">
-              <div v-for="item in items" :key="item.code" class="chart-item" @click="goToChart(item, chartName)">
+              <div
+                v-for="item in items"
+                :key="item.code"
+                class="chart-item"
+                @click="goToChart(item, chartName)"
+              >
                 <span class="item-rank">#{{ item.rank }}</span>
                 <span class="item-code">{{ item.code }}</span>
+                <span v-if="item.score" class="item-score">★ {{ item.score.toFixed(1) }}</span>
               </div>
             </div>
           </div>
         </div>
-        <div v-else class="empty-tab">暂无榜单记录</div>
+        <div v-else class="empty-tab">
+          <el-icon size="48"><Trophy /></el-icon>
+          <p>暂无榜单记录</p>
+        </div>
       </el-tab-pane>
 
       <!-- 缺失影片 -->
@@ -97,10 +129,16 @@
             <span v-if="item.score" class="score-badge" :class="getScoreClass(item.score)">
               ★ {{ item.score.toFixed(1) }}
             </span>
-            <el-button size="small" type="primary" @click="addToTodo(item)">加入待看</el-button>
+            <el-button size="small" type="primary" @click="addToTodo(item)">
+              <el-icon><Plus /></el-icon>
+              加入待看
+            </el-button>
           </div>
         </div>
-        <div v-else class="empty-tab">暂无缺失记录</div>
+        <div v-else class="empty-tab">
+          <el-icon size="48"><CircleCheck /></el-icon>
+          <p>暂无缺失记录</p>
+        </div>
       </el-tab-pane>
     </el-tabs>
   </div>
@@ -110,6 +148,16 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import {
+  ArrowLeft,
+  StarFilled,
+  Link,
+  Check,
+  Plus,
+  Picture,
+  Trophy,
+  CircleCheck
+} from '@element-plus/icons-vue'
 import { actorsApi, todosApi } from '../api'
 
 const route = useRoute()
@@ -193,32 +241,62 @@ onMounted(() => {
 .actor-detail-view {
   max-width: 1000px;
   margin: 0 auto;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .page-header {
-  margin-bottom: 16px;
-}
-
-.actor-profile {
-  background: #1a1a1a;
   margin-bottom: 24px;
 }
 
-.profile-content {
+.back-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.back-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+/* 演员信息卡片 */
+.actor-profile {
   display: flex;
   gap: 32px;
+  padding: 32px;
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 28px;
 }
 
 .profile-avatar {
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  background: #2a2a2a;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  width: 160px;
+  height: 160px;
+  border-radius: 24px;
   overflow: hidden;
   flex-shrink: 0;
+  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
 }
 
 .profile-avatar img {
@@ -227,171 +305,352 @@ onMounted(() => {
   object-fit: cover;
 }
 
-.actor-name {
-  font-size: 28px;
-  font-weight: 600;
-  margin-bottom: 16px;
-}
-
-.followed-star {
-  color: #e50914;
-}
-
-.actor-stats {
-  display: flex;
-  gap: 32px;
-  margin-bottom: 16px;
-}
-
-.stat-item {
-  display: flex;
-  flex-direction: column;
-}
-
-.stat-value {
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.stat-label {
-  font-size: 12px;
-  color: #666;
-}
-
-.actor-links {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.actor-tabs {
-  background: #1a1a1a;
-  border-radius: 8px;
-  padding: 16px;
-}
-
-.card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 16px;
-}
-
-.card {
-  background: #242424;
-  border-radius: 8px;
-  overflow: hidden;
-  cursor: pointer;
-  transition: transform 0.2s;
-}
-
-.card:hover {
-  transform: translateY(-4px);
-}
-
-.card-poster {
-  aspect-ratio: 2/3;
-  background: #333;
+.avatar-placeholder {
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.card-poster img {
+.avatar-initial {
+  font-size: 64px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.followed-badge {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  background: var(--primary-gradient);
+  border: none;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(232, 165, 152, 0.4);
+}
+
+.profile-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.actor-name {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 20px;
+  letter-spacing: -0.5px;
+}
+
+.actor-stats {
+  display: flex;
+  gap: 32px;
+  margin-bottom: 24px;
+}
+
+.stat-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-num {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.stat-label {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.actor-links {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.follow-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 32px;
+  background: var(--primary-gradient);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-top: auto;
+  width: fit-content;
+}
+
+.follow-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(232, 165, 152, 0.4);
+}
+
+.follow-btn.following {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.follow-btn.following:hover {
+  background: var(--bg-secondary);
+  box-shadow: none;
+}
+
+/* 标签页 */
+.actor-tabs {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+}
+
+/* 影片网格 */
+.movies-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+}
+
+.movie-card {
+  cursor: pointer;
+  transition: transform 0.3s ease;
+}
+
+.movie-card:hover {
+  transform: translateY(-4px);
+}
+
+.movie-poster {
+  position: relative;
+  aspect-ratio: 2/3;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  margin-bottom: 10px;
+}
+
+.movie-poster img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.card-info {
-  padding: 8px;
+.poster-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
 }
 
-.card-score {
+.score-overlay {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  backdrop-filter: blur(4px);
+}
+
+.score-star {
+  font-size: 12px;
+  color: var(--accent-gold);
+}
+
+.score-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.movie-info {
+  padding: 0 4px;
+}
+
+.movie-code {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary-color);
   margin-bottom: 4px;
 }
 
-.card-code {
-  font-size: 13px;
-  font-weight: 600;
-  color: #e50914;
-}
-
-.card-title {
+.movie-title {
   font-size: 12px;
-  color: #666;
+  color: var(--text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.chart-group {
-  margin-bottom: 16px;
+/* 榜单成绩 */
+.chart-appearances {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
-.chart-group-header {
+.chart-group {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.chart-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--bg-tertiary);
+}
+
+.chart-header .el-icon {
+  color: var(--accent-gold);
+}
+
+.chart-header h4 {
+  flex: 1;
+  font-size: 15px;
   font-weight: 600;
-  padding: 8px 0;
-  border-bottom: 1px solid #333;
+  color: var(--text-primary);
+}
+
+.chart-count {
+  font-size: 13px;
+  color: var(--text-tertiary);
 }
 
 .chart-items {
+  padding: 12px;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 8px 0;
 }
 
 .chart-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 12px;
-  background: #242424;
-  border-radius: 4px;
+  padding: 8px 14px;
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .chart-item:hover {
-  background: #333;
+  background: var(--primary-light);
 }
 
 .item-rank {
-  color: #666;
   font-size: 12px;
+  color: var(--text-muted);
 }
 
 .item-code {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.item-score {
+  font-size: 12px;
+  color: var(--accent-gold);
   font-weight: 600;
 }
 
+/* 缺失列表 */
 .missing-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .missing-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
-  background: #242424;
-  border-radius: 4px;
+  gap: 16px;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
 }
 
 .missing-rank {
-  color: #666;
-  width: 40px;
+  width: 50px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 
 .missing-code {
   flex: 1;
+  font-size: 15px;
   font-weight: 600;
+  color: var(--primary-color);
 }
 
+/* 空状态 */
 .empty-tab {
   text-align: center;
-  padding: 40px;
-  color: #666;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}
+
+.empty-tab .el-icon {
+  font-size: 56px;
+  margin-bottom: 16px;
+  color: var(--border-color);
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .actor-profile {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .profile-avatar {
+    width: 120px;
+    height: 120px;
+  }
+
+  .actor-stats {
+    justify-content: center;
+  }
+
+  .actor-links {
+    justify-content: center;
+  }
+
+  .follow-btn {
+    width: 100%;
+  }
+
+  .movies-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
 }
 </style>

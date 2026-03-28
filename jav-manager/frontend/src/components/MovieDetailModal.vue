@@ -2,98 +2,141 @@
   <el-dialog
     :model-value="modelValue"
     @update:model-value="$emit('update:modelValue', $event)"
-    :title="movie?.code || '影片详情'"
-    width="700px"
+    :title="movie ? `${movie.code} - ${movie.title}` : '影片详情'"
+    width="720px"
     class="movie-detail-dialog"
     :close-on-click-modal="true"
+    destroy-on-close
   >
     <div v-if="movie" class="movie-detail">
+      <!-- 海报区 -->
       <div class="detail-poster">
-        <img v-if="movie.poster_url" :src="movie.poster_url" :alt="movie.code" @error="handleImgError" />
-        <div v-else class="poster-placeholder">
-          <el-icon size="64"><Picture /></el-icon>
+        <div class="poster-wrapper">
+          <img v-if="movie.poster_url" :src="movie.poster_url" :alt="movie.code" @error="handleImgError" />
+          <div v-else class="poster-placeholder">
+            <el-icon size="48"><Picture /></el-icon>
+            <span>{{ movie.code }}</span>
+          </div>
+        </div>
+
+        <!-- 快捷操作 -->
+        <div class="poster-actions">
+          <button class="poster-btn primary" @click="openInJellyfin" v-if="movie.jellyfin_id">
+            <el-icon><VideoPlay /></el-icon>
+            播放
+          </button>
+          <button class="poster-btn" @click="$emit('add-to-todo', movie)">
+            <el-icon><Plus /></el-icon>
+            待看
+          </button>
         </div>
       </div>
 
+      <!-- 内容区 -->
       <div class="detail-content">
-        <div class="movie-header">
-          <h2 class="movie-code">{{ movie.code }}</h2>
+        <!-- 标题区 -->
+        <div class="content-header">
           <div v-if="movie.badges?.length" class="movie-badges">
-            <span v-for="badge in movie.badges" :key="badge" class="badge">{{ badge }}</span>
+            <span v-for="badge in movie.badges" :key="badge" class="detail-badge">{{ badge }}</span>
           </div>
         </div>
 
-        <h3 class="movie-title">{{ movie.title }}</h3>
+        <!-- 评分卡片 -->
+        <div class="scores-card">
+          <div class="score-box">
+            <span class="score-label">JavDB</span>
+            <div v-if="movie.javdb_score" class="score-display">
+              <el-icon class="score-star"><StarFilled /></el-icon>
+              <span class="score-value">{{ movie.javdb_score.toFixed(1) }}</span>
+              <span class="score-max">/5</span>
+            </div>
+            <span v-else class="score-empty">暂无评分</span>
+          </div>
+          <div class="score-divider"></div>
+          <div class="score-box">
+            <span class="score-label">加权分</span>
+            <span class="score-value weighted">{{ movie.weighted_score || '-' }}</span>
+          </div>
+        </div>
 
-        <div class="movie-meta">
+        <!-- 元信息 -->
+        <div class="meta-grid">
           <div v-if="movie.year" class="meta-item">
-            <span class="meta-label">📅 年份</span>
-            <span class="meta-value">{{ movie.year }}</span>
+            <el-icon><Calendar /></el-icon>
+            <div class="meta-content">
+              <span class="meta-label">年份</span>
+              <span class="meta-value">{{ movie.year }}</span>
+            </div>
           </div>
           <div v-if="movie.date_added" class="meta-item">
-            <span class="meta-label">📁 添加时间</span>
-            <span class="meta-value">{{ formatDate(movie.date_added) }}</span>
+            <el-icon><Clock /></el-icon>
+            <div class="meta-content">
+              <span class="meta-label">添加时间</span>
+              <span class="meta-value">{{ formatDate(movie.date_added) }}</span>
+            </div>
           </div>
-          <div v-if="movie.jellyfin_path" class="meta-item">
-            <span class="meta-label">📂 路径</span>
-            <span class="meta-value path">{{ movie.jellyfin_path }}</span>
+          <div v-if="movie.actors?.length" class="meta-item full-width">
+            <el-icon><User /></el-icon>
+            <div class="meta-content">
+              <span class="meta-label">演员</span>
+              <div class="actors-inline">
+                <div
+                  v-for="actor in movie.actors"
+                  :key="actor"
+                  class="actor-item"
+                  @click="goToActor(actor)"
+                >
+                  <img
+                    v-if="movie.actor_images && movie.actor_images[actor]"
+                    :src="movie.actor_images[actor]"
+                    :alt="actor"
+                    class="actor-avatar"
+                    @error="handleActorImgError($event, actor)"
+                  />
+                  <div v-else class="actor-avatar-placeholder">
+                    {{ actor.charAt(0) }}
+                  </div>
+                  <span class="actor-name">{{ actor }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-if="movie.jellyfin_path" class="meta-item full-width">
+            <el-icon><Folder /></el-icon>
+            <div class="meta-content">
+              <span class="meta-label">文件路径</span>
+              <span class="meta-value path">{{ movie.jellyfin_path }}</span>
+            </div>
           </div>
         </div>
 
-        <div v-if="movie.actors?.length" class="movie-actors">
-          <span class="meta-label">👤 演员</span>
-          <div class="actors-list">
-            <span
-              v-for="actor in movie.actors"
-              :key="actor"
-              class="actor-tag"
-              @click="goToActor(actor)"
-            >
-              {{ actor }}
-            </span>
-          </div>
-        </div>
-
-        <div class="movie-scores">
-          <div class="score-item">
-            <span class="score-label">⭐ JavDB</span>
-            <span v-if="movie.javdb_score" class="score-badge" :class="getScoreClass(movie.javdb_score)">
-              {{ movie.javdb_score.toFixed(1) }}/5
-            </span>
-            <span v-else class="score-none">-</span>
-          </div>
-          <div class="score-item">
-            <span class="score-label">📊 加权分</span>
-            <span class="score-value weighted">{{ movie.weighted_score }}</span>
-          </div>
-        </div>
-
-        <div class="movie-actions">
-          <el-button type="primary" @click="openInJellyfin" v-if="movie.jellyfin_id">
-            <el-icon><VideoPlay /></el-icon>
-            在 Jellyfin 中打开
-          </el-button>
-          <el-button @click="$emit('add-to-todo', movie)">
-            <el-icon><Plus /></el-icon>
-            加入待看清单
-          </el-button>
+        <!-- 操作按钮 -->
+        <div class="detail-actions">
           <el-button @click="$emit('refresh', movie.code)" :loading="refreshing">
             <el-icon><Refresh /></el-icon>
             刷新评分
           </el-button>
+          <el-button @click="$emit('update:modelValue', false)">关闭</el-button>
         </div>
       </div>
     </div>
-
-    <template #footer v-if="movie">
-      <el-button @click="$emit('update:modelValue', false)">关闭</el-button>
-    </template>
   </el-dialog>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import {
+  Picture,
+  VideoPlay,
+  Plus,
+  StarFilled,
+  Calendar,
+  Clock,
+  Folder,
+  User,
+  Refresh
+} from '@element-plus/icons-vue'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -111,15 +154,16 @@ const formatDate = (dateStr) => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-const getScoreClass = (score) => {
-  if (score >= 4.5) return 'score-high'
-  if (score >= 4.0) return 'score-mid'
-  return 'score-low'
-}
-
 const handleImgError = (e) => {
   e.target.style.display = 'none'
-  e.target.parentElement.querySelector('.poster-placeholder')?.style.display='flex'
+}
+
+const handleActorImgError = (e, actorName) => {
+  // 替换为占位符
+  const parent = e.target.parentElement
+  if (parent) {
+    parent.innerHTML = `<div class="actor-avatar-placeholder">${actorName.charAt(0)}</div>`
+  }
 }
 
 const goToActor = (actor) => {
@@ -127,43 +171,93 @@ const goToActor = (actor) => {
 }
 
 const openInJellyfin = () => {
-  // TODO: 打开 Jellyfin
-  console.log('Open in Jellyfin:', props.movie?.jellyfin_id)
+  if (props.movie?.jellyfin_id) {
+    window.open(`/jellyfin/web/#/details?id=${props.movie.jellyfin_id}`, '_blank')
+  }
 }
 </script>
 
 <style scoped>
 .movie-detail {
   display: flex;
-  gap: 24px;
-  padding: 8px 0;
+  gap: 28px;
+  padding: 4px;
 }
 
+/* 海报区 */
 .detail-poster {
-  width: 220px;
-  height: 330px;
-  background: #242424;
-  border-radius: 8px;
-  overflow: hidden;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 240px;
 }
 
-.detail-poster img {
+.poster-wrapper {
+  aspect-ratio: 2/3;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 16px;
+}
+
+.poster-wrapper img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
 .poster-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-muted);
+  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
+}
+
+.poster-placeholder span {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.poster-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.poster-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #666;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
+.poster-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.poster-btn.primary {
+  background: var(--primary-gradient);
+  color: #fff;
+}
+
+.poster-btn.primary:hover {
+  box-shadow: 0 4px 12px rgba(232, 165, 152, 0.35);
+}
+
+/* 内容区 */
 .detail-content {
   flex: 1;
   min-width: 0;
@@ -171,159 +265,253 @@ const openInJellyfin = () => {
   flex-direction: column;
 }
 
-.movie-header {
+.content-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 4px;
-}
-
-.movie-code {
-  font-size: 28px;
-  font-weight: 700;
-  color: #e50914;
+  margin-bottom: 16px;
 }
 
 .movie-badges {
   display: flex;
-  gap: 4px;
+  gap: 6px;
 }
 
-.movie-badges .badge {
+.detail-badge {
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* 评分卡片 */
+.scores-card {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  margin-bottom: 20px;
+}
+
+.score-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.score-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.score-display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.score-star {
+  color: var(--accent-gold);
+}
+
+.score-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.score-value.weighted {
+  color: var(--primary-color);
+}
+
+.score-max {
   font-size: 14px;
+  color: var(--text-muted);
 }
 
-.movie-title {
+.score-empty {
   font-size: 16px;
-  font-weight: normal;
-  color: #a0a0a0;
-  margin-bottom: 16px;
+  color: var(--text-muted);
 }
 
-.movie-meta {
-  margin-bottom: 16px;
+.score-divider {
+  width: 1px;
+  height: 40px;
+  background: var(--border-color);
+}
+
+/* 元信息网格 */
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
 }
 
 .meta-item {
   display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
   align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
 }
 
-.meta-label {
-  color: #666;
-  font-size: 13px;
-  min-width: 70px;
+.meta-item.full-width {
+  grid-column: 1 / -1;
 }
 
-.meta-value {
-  color: #fff;
-  font-size: 13px;
+.meta-item .el-icon {
+  color: var(--text-muted);
+  margin-top: 2px;
 }
 
-.meta-value.path {
-  font-size: 12px;
-  word-break: break-all;
-  color: #888;
-}
-
-.movie-actors {
-  margin-bottom: 16px;
-}
-
-.actors-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.actor-tag {
-  padding: 4px 10px;
-  background: #242424;
-  border-radius: 16px;
-  font-size: 13px;
-  color: #fff;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.actor-tag:hover {
-  background: #e50914;
-  transform: scale(1.05);
-}
-
-.movie-scores {
-  display: flex;
-  gap: 32px;
-  margin-bottom: 20px;
-  padding: 16px;
-  background: #242424;
-  border-radius: 8px;
-}
-
-.score-item {
+.meta-content {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.score-label {
+.meta-label {
   font-size: 12px;
-  color: #666;
+  color: var(--text-tertiary);
 }
 
-.score-value {
-  font-size: 24px;
-  font-weight: 700;
+.meta-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
 }
 
-.score-value.weighted {
-  color: #e50914;
+.meta-value.path {
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--text-secondary);
 }
 
-.score-none {
-  font-size: 18px;
-  color: #666;
-}
-
-.movie-actions {
+.actors-inline {
   display: flex;
-  gap: 8px;
   flex-wrap: wrap;
-  margin-top: auto;
+  gap: 10px;
 }
 
-.movie-actions .el-button {
+.actor-item {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 4px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.actor-item:hover {
+  transform: translateY(-2px);
+}
+
+.actor-item:hover .actor-name {
+  color: var(--primary-color);
+}
+
+.actor-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-tertiary);
+}
+
+.actor-avatar-placeholder {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary-color), #E8A598);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.actor-name {
+  font-size: 11px;
+  color: var(--text-secondary);
+  max-width: 56px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* 操作按钮 */
+.detail-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 20px;
 }
 </style>
 
 <style>
+/* 对话框样式覆盖 */
 .movie-detail-dialog .el-dialog {
-  background: #1a1a1a !important;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
 }
 
 .movie-detail-dialog .el-dialog__header {
-  border-bottom: 1px solid #333;
-  padding: 16px 20px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .movie-detail-dialog .el-dialog__title {
-  color: #fff;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
+  color: var(--text-primary);
 }
 
 .movie-detail-dialog .el-dialog__body {
-  padding: 20px;
+  padding: 24px;
 }
 
-.movie-detail-dialog .el-dialog__footer {
-  border-top: 1px solid #333;
-  padding: 16px 20px;
+.movie-detail-dialog .el-dialog__headerbtn:hover .el-dialog__close {
+  color: var(--primary-color);
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .movie-detail {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .detail-poster {
+    width: 200px;
+  }
+
+  .poster-actions {
+    flex-direction: row;
+  }
+
+  .meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .scores-card {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .score-divider {
+    width: 100%;
+    height: 1px;
+  }
 }
 </style>

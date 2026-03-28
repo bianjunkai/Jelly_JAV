@@ -71,4 +71,16 @@ export const statsApi = {
   get: () => api.get('/stats')
 }
 
+// 配置 API
+export const configApi = {
+  get: () => api.get('/config'),
+  update: (data) => api.put('/config', data),
+  getCharts: () => api.get('/config/charts')
+}
+
+// 榜单管理 API
+export const chartManageApi = {
+  create: (data) => api.post('/charts', data)
+}
+
 export default api

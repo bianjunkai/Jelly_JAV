@@ -150,10 +150,8 @@ def scrape_chart(chart):
     print(f"Chart {chart.display_name} updated with {len(items)} items")
 
 
-def init_default_charts():
+def init_default_charts(db):
     """初始化默认榜单"""
-    # 延迟导入
-    from app import db
     from models import Chart
 
     default_charts = [
@@ -190,7 +188,7 @@ def init_default_charts():
     ]
 
     for chart_data in default_charts:
-        existing = Chart.query.filter_by(name=chart_data['name']).first()
+        existing = db.session.query(Chart).filter_by(name=chart_data['name']).first()
         if not existing:
             chart = Chart(**chart_data)
             db.session.add(chart)

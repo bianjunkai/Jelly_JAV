@@ -1,105 +1,166 @@
 <template>
   <div class="gap-analysis-view">
+    <!-- 页面头部 -->
     <div class="page-header">
       <div class="header-left">
-        <el-button text @click="$router.back()">
+        <button class="back-btn" @click="$router.back()">
           <el-icon><ArrowLeft /></el-icon>
-          返回
-        </el-button>
+          <span>返回</span>
+        </button>
         <h1 class="page-title">{{ chartName }} - 缺口分析</h1>
       </div>
     </div>
 
-    <div v-loading="loading">
+    <div v-loading="loading" class="analysis-content">
       <!-- 统计卡片 -->
-      <div class="stats-cards">
-        <el-card class="stat-card">
-          <div class="stat-value missing">{{ gapData.missing }}</div>
-          <div class="stat-label">缺失影片</div>
-        </el-card>
-        <el-card class="stat-card">
-          <div class="stat-value">{{ gapData.coverage_percent }}%</div>
-          <div class="stat-label">覆盖率</div>
-        </el-card>
-        <el-card class="stat-card">
-          <div class="stat-value high">{{ gapData.by_score_range?.high?.length || 0 }}</div>
-          <div class="stat-label">高分缺失 (≥4.5)</div>
-        </el-card>
-        <el-card class="stat-card">
-          <div class="stat-value">{{ Object.keys(gapData.by_followed_actor || {}).length }}</div>
-          <div class="stat-label">关注演员缺失</div>
-        </el-card>
-      </div>
-
-      <!-- 按评分分布 -->
-      <el-card class="section-card">
-        <template #header>
-          <div class="section-title">按评分分布</div>
-        </template>
-        <div class="score-distribution">
-          <div class="dist-item high">
-            <span class="dist-label">高分区 ≥4.5</span>
-            <span class="dist-count">{{ gapData.by_score_range?.high?.length || 0 }}</span>
-            <el-progress :percentage="getDistPercent(gapData.by_score_range?.high?.length)" :stroke-width="8" :show-text="false" />
-            <el-button size="small" @click="showGapList('high')">查看</el-button>
+      <div class="stats-grid">
+        <div class="stat-card missing">
+          <div class="stat-icon">
+            <el-icon size="28" color="#E8A598"><Box /></el-icon>
           </div>
-          <div class="dist-item medium">
-            <span class="dist-label">中分区 4.0-4.5</span>
-            <span class="dist-count">{{ gapData.by_score_range?.medium?.length || 0 }}</span>
-            <el-progress :percentage="getDistPercent(gapData.by_score_range?.medium?.length)" :stroke-width="8" :show-text="false" />
-            <el-button size="small" @click="showGapList('medium')">查看</el-button>
-          </div>
-          <div class="dist-item low">
-            <span class="dist-label">低分区 &lt;4.0</span>
-            <span class="dist-count">{{ gapData.by_score_range?.low?.length || 0 }}</span>
-            <el-progress :percentage="getDistPercent(gapData.by_score_range?.low?.length)" :stroke-width="8" :show-text="false" />
-            <el-button size="small" @click="showGapList('low')">查看</el-button>
+          <div class="stat-content">
+            <span class="stat-value">{{ gapData.missing || 0 }}</span>
+            <span class="stat-label">缺失影片</span>
           </div>
         </div>
-      </el-card>
+        <div class="stat-card">
+          <div class="stat-icon">
+            <el-icon size="28" color="#8FB996"><PieChart /></el-icon>
+          </div>
+          <div class="stat-content">
+            <span class="stat-value">{{ gapData.coverage_percent || 0 }}%</span>
+            <span class="stat-label">覆盖率</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">
+            <el-icon size="28" color="#D4A574"><Star /></el-icon>
+          </div>
+          <div class="stat-content">
+            <span class="stat-value">{{ gapData.by_score_range?.high?.length || 0 }}</span>
+            <span class="stat-label">高分缺失 (≥4.5)</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">
+            <el-icon size="28" color="#8FB8CD"><User /></el-icon>
+          </div>
+          <div class="stat-content">
+            <span class="stat-value">{{ Object.keys(gapData.by_followed_actor || {}).length }}</span>
+            <span class="stat-label">关注演员缺失</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 评分分布 -->
+      <div class="score-distribution">
+        <h3 class="section-title">按评分分布</h3>
+        <div class="dist-grid">
+          <div class="dist-card high">
+            <div class="dist-header">
+              <span class="dist-label">高分区</span>
+              <span class="dist-badge">≥ 4.5</span>
+            </div>
+            <div class="dist-count">{{ gapData.by_score_range?.high?.length || 0 }} 部</div>
+            <div class="dist-bar">
+              <div class="dist-progress" :style="{ width: getDistPercent(gapData.by_score_range?.high?.length) + '%' }"></div>
+            </div>
+            <el-button size="small" @click="showGapList('high')">查看列表</el-button>
+          </div>
+
+          <div class="dist-card medium">
+            <div class="dist-header">
+              <span class="dist-label">中分区</span>
+              <span class="dist-badge">4.0 - 4.5</span>
+            </div>
+            <div class="dist-count">{{ gapData.by_score_range?.medium?.length || 0 }} 部</div>
+            <div class="dist-bar">
+              <div class="dist-progress" :style="{ width: getDistPercent(gapData.by_score_range?.medium?.length) + '%' }"></div>
+            </div>
+            <el-button size="small" @click="showGapList('medium')">查看列表</el-button>
+          </div>
+
+          <div class="dist-card low">
+            <div class="dist-header">
+              <span class="dist-label">低分区</span>
+              <span class="dist-badge">&lt; 4.0</span>
+            </div>
+            <div class="dist-count">{{ gapData.by_score_range?.low?.length || 0 }} 部</div>
+            <div class="dist-bar">
+              <div class="dist-progress" :style="{ width: getDistPercent(gapData.by_score_range?.low?.length) + '%' }"></div>
+            </div>
+            <el-button size="small" @click="showGapList('low')">查看列表</el-button>
+          </div>
+        </div>
+      </div>
 
       <!-- 关注演员缺失 -->
-      <el-card v-if="Object.keys(gapData.by_followed_actor || {}).length > 0" class="section-card">
-        <template #header>
-          <div class="section-title">⭐ 关注演员缺失</div>
-        </template>
-        <div v-for="(items, actor) in gapData.by_followed_actor" :key="actor" class="actor-group">
-          <div class="actor-header">
-            <span class="actor-name">{{ actor }}</span>
-            <span class="actor-count">{{ items.length }} 部</span>
-          </div>
-          <div class="actor-movies">
-            <div v-for="item in items.slice(0, 5)" :key="item.code" class="gap-item" @click="showGapDetail(item)">
-              <span class="gap-rank">#{{ item.rank }}</span>
-              <span class="gap-code">{{ item.code }}</span>
-              <span v-if="item.score" class="score-badge" :class="getScoreClass(item.score)">★ {{ item.score.toFixed(1) }}</span>
-              <el-button size="small" type="primary" @click.stop="addToTodo(item)">加入待看</el-button>
+      <div v-if="Object.keys(gapData.by_followed_actor || {}).length > 0" class="actor-gaps">
+        <h3 class="section-title">
+          <el-icon><StarFilled /></el-icon>
+          关注演员缺失影片
+        </h3>
+        <div class="actor-cards">
+          <div v-for="(items, actor) in gapData.by_followed_actor" :key="actor" class="actor-card">
+            <div class="actor-header">
+              <div class="actor-avatar">
+                <span class="avatar-text">{{ actor.charAt(0) }}</span>
+              </div>
+              <div class="actor-info">
+                <h4 class="actor-name">{{ actor }}</h4>
+                <span class="actor-count">{{ items.length }} 部缺失</span>
+              </div>
+              <el-button size="small" @click="viewActorGaps(actor)">查看全部</el-button>
             </div>
-            <el-button v-if="items.length > 5" text @click="viewActorGaps(actor)">
-              查看全部 {{ items.length }} 部...
+            <div class="actor-movies">
+              <div v-for="item in items.slice(0, 5)" :key="item.code" class="movie-item">
+                <span class="movie-rank">#{{ item.rank }}</span>
+                <span class="movie-code">{{ item.code }}</span>
+                <span v-if="item.score" class="movie-score">★ {{ item.score.toFixed(1) }}</span>
+                <el-button size="small" type="primary" @click="addToTodo(item)">加入待看</el-button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 完整缺失列表 -->
+      <div class="full-list">
+        <h3 class="section-title">完整缺失列表</h3>
+        <div class="list-actions">
+          <div class="action-left">
+            <el-button @click="selectAll">{{ allSelected ? '取消全选' : '全选' }}</el-button>
+            <span class="selected-count">已选 {{ selectedItems.length }} 部</span>
+          </div>
+          <div class="action-right">
+            <el-button type="primary" :disabled="selectedItems.length === 0" @click="batchAddToTodo">
+              <el-icon><Plus /></el-icon>
+              批量加入待看
+            </el-button>
+            <el-button @click="exportCSV">
+              <el-icon><Download /></el-icon>
+              导出 CSV
             </el-button>
           </div>
         </div>
-      </el-card>
-
-      <!-- 完整缺失列表 -->
-      <el-card class="section-card">
-        <template #header>
-          <div class="section-title">完整缺失列表</div>
-        </template>
-        <div class="batch-actions">
-          <el-button @click="selectAll">全选</el-button>
-          <span>已选 {{ selectedItems.length }} 部</span>
-          <el-button type="primary" :disabled="selectedItems.length === 0" @click="batchAddToTodo">
-            批量加入待看
-          </el-button>
-          <el-button @click="exportCSV">导出 CSV</el-button>
-        </div>
-        <el-table ref="gapTable" :data="gapData.all_missing" @selection-change="handleSelection">
+        <el-table
+          ref="gapTable"
+          :data="gapData.all_missing"
+          @selection-change="handleSelection"
+          class="gap-table"
+        >
           <el-table-column type="selection" width="50" />
-          <el-table-column label="排名" width="80" prop="rank" />
-          <el-table-column label="番号" width="120" prop="code" />
-          <el-table-column label="评分" width="100">
+          <el-table-column label="排名" width="70" prop="rank">
+            <template #default="{ row }">
+              <span class="rank-badge" :class="{ top: row.rank <= 10 }">#{{ row.rank }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="番号" width="110" prop="code">
+            <template #default="{ row }">
+              <span class="code-text">{{ row.code }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="评分" width="90">
             <template #default="{ row }">
               <span v-if="row.score" class="score-badge" :class="getScoreClass(row.score)">
                 ★ {{ row.score.toFixed(1) }}
@@ -111,13 +172,13 @@
               {{ row.actors?.slice(0, 2).join(', ') }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="120">
+          <el-table-column label="操作" width="100">
             <template #default="{ row }">
               <el-button size="small" type="primary" @click="addToTodo(row)">加入待看</el-button>
             </template>
           </el-table-column>
         </el-table>
-      </el-card>
+      </div>
     </div>
   </div>
 </template>
@@ -126,6 +187,16 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  ArrowLeft,
+  Box,
+  PieChart,
+  Star,
+  User,
+  StarFilled,
+  Plus,
+  Download
+} from '@element-plus/icons-vue'
 import { chartsApi, todosApi } from '../api'
 
 const route = useRoute()
@@ -134,6 +205,9 @@ const gapData = ref({})
 const selectedItems = ref([])
 const gapTable = ref(null)
 const chartName = computed(() => decodeURIComponent(route.params.name))
+const allSelected = computed(() => {
+  return selectedItems.value.length === (gapData.value.all_missing?.length || 0) && selectedItems.value.length > 0
+})
 
 const fetchGaps = async () => {
   loading.value = true
@@ -162,7 +236,11 @@ const handleSelection = (selection) => {
 }
 
 const selectAll = () => {
-  gapTable.value?.toggleAllSelection()
+  if (allSelected.value) {
+    gapTable.value?.clearSelection()
+  } else {
+    gapTable.value?.toggleAllSelection()
+  }
 }
 
 const addToTodo = async (item) => {
@@ -192,6 +270,7 @@ const batchAddToTodo = async () => {
     const result = await todosApi.batchAdd(items)
     ElMessage.success(`已添加 ${result.added} 部到待看清单`)
     selectedItems.value = []
+    gapTable.value?.clearSelection()
   } catch (e) {
     ElMessage.error('批量添加失败')
   }
@@ -202,25 +281,22 @@ const exportCSV = () => {
   gapData.value.all_missing?.forEach(item => {
     csv.push(`${item.rank},${item.code},"${item.title || ''}",${item.score || ''},"${(item.actors || []).join(',')}"`)
   })
-  const blob = new Blob([csv.join('\n')], { type: 'text/csv' })
+  const blob = new Blob([csv.join('\n')], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = `${chartName.value}-missing.csv`
   a.click()
   URL.revokeObjectURL(url)
+  ElMessage.success('导出成功')
 }
 
 const showGapList = (type) => {
-  // TODO: 打开对应评分区间的列表
+  // TODO: 打开对应评分区间的列表弹窗
 }
 
 const viewActorGaps = (actor) => {
   // TODO: 打开该演员的完整缺失列表
-}
-
-const showGapDetail = (item) => {
-  // TODO: 显示影片详情
 }
 
 onMounted(() => {
@@ -232,10 +308,22 @@ onMounted(() => {
 .gap-analysis-view {
   max-width: 1200px;
   margin: 0 auto;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .page-header {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
 .header-left {
@@ -244,135 +332,368 @@ onMounted(() => {
   gap: 16px;
 }
 
-.page-title {
-  font-size: 24px;
-  font-weight: 600;
+.back-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.stats-cards {
+.back-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.page-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+}
+
+/* 统计卡片 */
+.stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 20px;
+  margin-bottom: 32px;
 }
 
 .stat-card {
-  text-align: center;
-  background: #1a1a1a;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  transition: all 0.3s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
+.stat-card.missing {
+  background: linear-gradient(135deg, #F5D5CE20, #E8A59810);
+  border: 1px solid #F5D5CE;
+}
+
+.stat-icon {
+  width: 56px;
+  height: 56px;
+  background: var(--bg-secondary);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stat-content {
+  flex: 1;
 }
 
 .stat-value {
-  font-size: 32px;
-  font-weight: 600;
-}
-
-.stat-value.missing {
-  color: #ef4444;
-}
-
-.stat-value.high {
-  color: #4ade80;
+  display: block;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
 }
 
 .stat-label {
   font-size: 14px;
-  color: #666;
-  margin-top: 4px;
+  color: var(--text-tertiary);
 }
 
-.section-card {
-  margin-bottom: 20px;
-  background: #1a1a1a;
+/* 评分分布 */
+.score-distribution {
+  margin-bottom: 32px;
 }
 
 .section-title {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.score-distribution {
   display: flex;
-  gap: 24px;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 20px;
 }
 
-.dist-item {
-  flex: 1;
-  padding: 16px;
-  border-radius: 8px;
-  background: #242424;
+.section-title .el-icon {
+  color: var(--primary-color);
 }
 
-.dist-item.high {
-  border-left: 4px solid #4ade80;
+.dist-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
 }
 
-.dist-item.medium {
-  border-left: 4px solid #facc15;
+.dist-card {
+  padding: 24px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
 }
 
-.dist-item.low {
-  border-left: 4px solid #ef4444;
+.dist-card.high {
+  border-left: 4px solid var(--accent-green);
+}
+
+.dist-card.medium {
+  border-left: 4px solid var(--accent-gold);
+}
+
+.dist-card.low {
+  border-left: 4px solid var(--text-muted);
+}
+
+.dist-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
 }
 
 .dist-label {
-  display: block;
-  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dist-badge {
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border-radius: 20px;
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 
 .dist-count {
-  font-size: 24px;
-  font-weight: 600;
-  margin-right: 12px;
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 16px;
 }
 
-.actor-group {
-  margin-bottom: 20px;
+.dist-bar {
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.dist-progress {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+.dist-card.high .dist-progress {
+  background: var(--accent-green);
+}
+
+.dist-card.medium .dist-progress {
+  background: var(--accent-gold);
+}
+
+.dist-card.low .dist-progress {
+  background: var(--text-muted);
+}
+
+/* 演员缺失 */
+.actor-gaps {
+  margin-bottom: 32px;
+}
+
+.actor-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.actor-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
 }
 
 .actor-header {
   display: flex;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background: #242424;
-  border-radius: 4px;
-  margin-bottom: 8px;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  background: var(--bg-secondary);
+}
+
+.actor-avatar {
+  width: 48px;
+  height: 48px;
+  background: var(--primary-gradient);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.actor-info {
+  flex: 1;
 }
 
 .actor-name {
+  font-size: 16px;
   font-weight: 600;
-  color: #e50914;
+  color: var(--text-primary);
+  margin-bottom: 4px;
 }
 
 .actor-count {
-  color: #666;
+  font-size: 13px;
+  color: var(--text-tertiary);
 }
 
-.gap-item {
+.actor-movies {
+  padding: 16px 20px;
+}
+
+.movie-item {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #333;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
 }
 
-.gap-item:hover {
-  background: #242424;
+.movie-item:last-child {
+  margin-bottom: 0;
 }
 
-.gap-rank {
-  width: 40px;
-  color: #666;
-}
-
-.gap-code {
-  flex: 1;
+.movie-rank {
+  width: 50px;
+  font-size: 13px;
+  color: var(--text-tertiary);
   font-weight: 600;
 }
 
-.batch-actions {
+.movie-code {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.movie-score {
+  font-size: 13px;
+  color: var(--accent-gold);
+  font-weight: 600;
+}
+
+/* 完整列表 */
+.full-list {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+}
+
+.list-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.action-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.selected-count {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.action-right {
   display: flex;
   gap: 12px;
+}
+
+.gap-table {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.rank-badge {
+  display: inline-flex;
   align-items: center;
-  margin-bottom: 16px;
+  justify-content: center;
+  width: 36px;
+  height: 24px;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.rank-badge.top {
+  background: var(--primary-gradient);
+  color: #fff;
+}
+
+.code-text {
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+/* 响应式 */
+@media (max-width: 1024px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dist-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .page-title {
+    font-size: 20px;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .list-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .action-left,
+  .action-right {
+    justify-content: space-between;
+  }
 }
 </style>

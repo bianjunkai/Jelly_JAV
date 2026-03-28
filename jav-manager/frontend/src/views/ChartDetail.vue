@@ -2,15 +2,25 @@
   <div class="chart-detail-view">
     <div class="page-header">
       <div class="header-left">
-        <el-button text @click="$router.back()">
+        <button class="back-btn" @click="$router.back()">
           <el-icon><ArrowLeft /></el-icon>
-          返回
-        </el-button>
+          <span>返回</span>
+        </button>
         <h1 class="page-title">{{ chart?.display_name }}</h1>
       </div>
       <div class="header-stats">
-        <span>共 {{ total }} 部</span>
-        <span>已收藏 {{ collected }} ({{ coveragePercent }}%)</span>
+        <div class="stat-item">
+          <span class="stat-value">{{ total }}</span>
+          <span class="stat-label">总数</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-value collected">{{ collected }}</span>
+          <span class="stat-label">已收藏</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-value missing">{{ total - collected }}</span>
+          <span class="stat-label">缺失</span>
+        </div>
       </div>
     </div>
 
@@ -23,32 +33,41 @@
     </div>
 
     <el-table :data="items" stripe class="chart-table" @row-click="showDetail">
-      <el-table-column label="排名" width="80" prop="rank" sortable />
-      <el-table-column label="番号" width="120" prop="code" />
-      <el-table-column label="标题" min-width="200" prop="title" show-overflow-tooltip />
-      <el-table-column label="演员" width="150">
+      <el-table-column label="排名" width="70" prop="rank" sortable>
         <template #default="{ row }">
-          {{ row.actors?.slice(0, 2).join(', ') }}
+          <span class="rank-num" :class="{ top: row.rank <= 3 }">#{{ row.rank }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="评分" width="100" sortable prop="score">
+      <el-table-column label="番号" width="110" prop="code">
+        <template #default="{ row }">
+          <span class="code-text">{{ row.code }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="标题" min-width="200" prop="title" show-overflow-tooltip />
+      <el-table-column label="演员" width="140">
+        <template #default="{ row }">
+          <span class="actors-text">{{ row.actors?.slice(0, 2).join(', ') }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="评分" width="90" sortable prop="score">
         <template #default="{ row }">
           <span v-if="row.score" class="score-badge" :class="getScoreClass(row.score)">
             ★ {{ row.score.toFixed(1) }}
           </span>
-          <span v-else>-</span>
+          <span v-else class="no-score">-</span>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="100">
+      <el-table-column label="状态" width="90">
         <template #default="{ row }">
-          <el-tag v-if="row.in_library" type="success" size="small">已收藏</el-tag>
-          <el-tag v-else type="info" size="small">未收藏</el-tag>
+          <span class="status-tag" :class="row.in_library ? 'collected' : 'missing'">
+            {{ row.in_library ? '✓ 已收藏' : '未收藏' }}
+          </span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="120">
+      <el-table-column label="操作" width="100">
         <template #default="{ row }">
           <el-button v-if="!row.in_library" size="small" type="primary" @click.stop="addToTodo(row)">
-            加入待看
+            <el-icon><Plus /></el-icon>
           </el-button>
         </template>
       </el-table-column>
@@ -59,7 +78,7 @@
         v-model:current-page="currentPage"
         :page-size="pageSize"
         :total="total"
-        layout="prev, pager, next"
+        layout="prev, pager, next, jumper"
         @current-change="fetchChart"
       />
     </div>
@@ -70,6 +89,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { ArrowLeft, Plus } from '@element-plus/icons-vue'
 import { chartsApi, todosApi } from '../api'
 
 const route = useRoute()
@@ -136,13 +156,27 @@ onMounted(() => {
 .chart-detail-view {
   max-width: 1200px;
   margin: 0 auto;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+  gap: 16px;
 }
 
 .header-left {
@@ -151,34 +185,121 @@ onMounted(() => {
   gap: 16px;
 }
 
+.back-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.back-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
 .page-title {
-  font-size: 24px;
-  font-weight: 600;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
 }
 
 .header-stats {
   display: flex;
-  gap: 24px;
-  color: #666;
-  font-size: 14px;
+  gap: 20px;
+  padding: 12px 20px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.stat-value.collected {
+  color: var(--accent-green);
+}
+
+.stat-value.missing {
+  color: #E8A598;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 
 .filter-tabs {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .chart-table {
-  background: #1a1a1a;
-  border-radius: 8px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
 }
 
 .chart-table :deep(.el-table__row) {
   cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.chart-table :deep(.el-table__row:hover) {
+  background-color: var(--bg-secondary);
+}
+
+.status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-tag.collected {
+  background: rgba(143, 185, 150, 0.15);
+  color: var(--accent-green);
+}
+
+.status-tag.missing {
+  background: rgba(232, 165, 152, 0.15);
+  color: var(--text-tertiary);
 }
 
 .pagination-container {
   display: flex;
   justify-content: center;
-  margin-top: 24px;
+  padding: 24px 0;
+}
+
+@media (max-width: 768px) {
+  .page-title {
+    font-size: 22px;
+  }
+
+  .header-stats {
+    width: 100%;
+    justify-content: space-around;
+  }
 }
 </style>

@@ -1,98 +1,120 @@
 import re
 import httpx
+import logging
 from datetime import datetime
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def sync_from_jellyfin():
     """从 Jellyfin 同步电影数据"""
-    # 延迟导入
-    from app import db, config
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("sync_from_jellyfin started")
+
+    # 直接从 app 模块获取 config，避免重复导入
+    import sys
+    from app import app, db, load_config_from_file
     from models import Movie, Actor, TaskLog
 
-    task = TaskLog(task_type='sync', status='running', message='Starting Jellyfin sync')
-    db.session.add(task)
-    db.session.commit()
+    # 同步前重新加载配置（确保获取最新值）
+    load_config_from_file()
 
-    try:
-        headers = {'X-MediaBrowser-Token': config.JELLYFIN_API_KEY}
-        base_url = config.JELLYFIN_URL.rstrip('/')
+    # 通过 app 模块引用 config
+    from app import config as config_module
 
-        # 获取所有电影
-        movies_url = f"{base_url}/Items"
-        params = {
-            'IncludeItemTypes': 'Movie',
-            'Recursive': 'true',
-            'Fields': 'ProviderIds,PrimaryImageAspectRatio,OriginalTitle,ProductionYear',
-            'StartIndex': 0,
-            'Limit': 10000
-        }
+    logger.info(f"[SYNC] JELLYFIN_URL: {config_module.JELLYFIN_URL}")
+    logger.info(f"[SYNC] JELLYFIN_API_KEY: {'***' + config_module.JELLYFIN_API_KEY[-4:] if config_module.JELLYFIN_API_KEY else 'NOT SET'}")
 
-        resp = httpx.get(movies_url, headers=headers, params=params, timeout=60)
-        resp.raise_for_status()
-        data = resp.json()
+    # 在应用上下文中运行
+    with app.app_context():
+        task = TaskLog(task_type='sync', status='running', message='Starting Jellyfin sync')
+        db.session.add(task)
+        db.session.commit()
 
-        items = data.get('Items', [])
-        processed = 0
-        added = 0
+        try:
+            headers = {'X-MediaBrowser-Token': config_module.JELLYFIN_API_KEY}
+            base_url = config_module.JELLYFIN_URL.rstrip('/')
+            logger.info(f"Requesting movies from {base_url}")
 
-        for item in items:
-            # 提取番号
-            name = item.get('Name', '')
-            provider_ids = item.get('ProviderIds', {})
+            # 获取所有电影
+            movies_url = f"{base_url}/Items"
+            params = {
+                'IncludeItemTypes': 'Movie',
+                'Recursive': 'true',
+                'Fields': 'ProviderIds,PrimaryImageAspectRatio,OriginalTitle,ProductionYear,People',
+                'StartIndex': 0,
+                'Limit': 10000
+            }
 
-            # 尝试从名称或提供商ID提取番号
-            code = extract_code(name)
+            resp = httpx.get(movies_url, headers=headers, params=params, timeout=60)
+            resp.raise_for_status()
+            data = resp.json()
 
-            if not code:
-                # JELLYFIN 电影没有番号，跳过
-                processed += 1
-                continue
+            items = data.get('Items', [])
+            processed = 0
+            added = 0
 
-            # 检查是否已存在
-            existing = Movie.query.filter_by(code=code).first()
+            for item in items:
+                # 提取番号
+                name = item.get('Name', '')
+                provider_ids = item.get('ProviderIds', {})
 
-            if existing:
-                # 更新 Jellyfin 信息
-                existing.jellyfin_id = item.get('Id')
-                existing.jellyfin_path = item.get('Path')
-                if item.get('DateCreated'):
-                    existing.date_added = item.get('DateCreated')
-                processed += 1
-            else:
-                # 新增影片
-                movie = Movie(
-                    code=code,
-                    title=name,
-                    original_title=item.get('OriginalTitle'),
-                    year=item.get('ProductionYear'),
-                    jellyfin_id=item.get('Id'),
-                    jellyfin_path=item.get('Path'),
-                    date_added=datetime.fromisoformat(item.get('DateCreated').replace('Z', '+00:00')) if item.get('DateCreated') else None
-                )
-                db.session.add(movie)
-                added += 1
-                processed += 1
+                # 尝试从名称或提供商ID提取番号
+                code = extract_code(name)
 
-            # 更新演员
-            update_movie_actors(code, item.get('People', []))
+                if not code:
+                    # JELLYFIN 电影没有番号，跳过
+                    processed += 1
+                    continue
 
-            # 更新进度
-            task.progress = int(processed / len(items) * 100)
-            task.message = f'Processing: {code}'
+                # 检查是否已存在
+                existing = Movie.query.filter_by(code=code).first()
+
+                if existing:
+                    # 更新 Jellyfin 信息
+                    existing.jellyfin_id = item.get('Id')
+                    existing.jellyfin_path = item.get('Path')
+                    if item.get('DateCreated'):
+                        existing.date_added = item.get('DateCreated')
+                    processed += 1
+                else:
+                    # 新增影片
+                    movie = Movie(
+                        code=code,
+                        title=name,
+                        original_title=item.get('OriginalTitle'),
+                        year=item.get('ProductionYear'),
+                        jellyfin_id=item.get('Id'),
+                        jellyfin_path=item.get('Path'),
+                        date_added=datetime.fromisoformat(item.get('DateCreated').replace('Z', '+00:00')) if item.get('DateCreated') else None
+                    )
+                    db.session.add(movie)
+                    added += 1
+                    processed += 1
+
+                # 更新演员
+                update_movie_actors(code, item.get('People', []))
+
+                # 更新进度
+                task.progress = int(processed / len(items) * 100)
+                task.message = f'Processing: {code}'
+                db.session.commit()
+
+            # 清理任务日志
+            task.status = 'completed'
+            task.progress = 100
+            task.message = f'Completed: {added} added, {processed} processed'
+            task.finished_at = datetime.utcnow()
             db.session.commit()
 
-        # 清理任务日志
-        task.status = 'completed'
-        task.progress = 100
-        task.message = f'Completed: {added} added, {processed} processed'
-        task.finished_at = datetime.utcnow()
-        db.session.commit()
-
-    except Exception as e:
-        task.status = 'failed'
-        task.message = f'Error: {str(e)}'
-        task.finished_at = datetime.utcnow()
-        db.session.commit()
+        except Exception as e:
+            logger.error(f"Sync error: {e}", exc_info=True)
+            task.status = 'failed'
+            task.message = f'Error: {str(e)}'
+            task.finished_at = datetime.utcnow()
+            db.session.commit()
 
 
 def extract_code(title):
@@ -117,24 +139,36 @@ def extract_code(title):
     return None
 
 
-def update_movie_actors(code, people):
+def update_movie_actors(code, people, jellyfin_item=None):
     """更新影片演员信息"""
+    import json
     # 延迟导入
-    from app import db
+    from app import db, config as config_module
     from models import Movie, Actor
 
     movie = Movie.query.filter_by(code=code).first()
     if not movie:
         return
 
-    # 筛选演员
+    # 筛选演员并收集头像信息
     actors = []
+    actor_images = {}
     for person in people:
         if person.get('Type') == 'Actor':
-            actors.append(person.get('Name', ''))
+            name = person.get('Name', '')
+            if name:
+                actors.append(name)
+                # 获取演员头像 URL
+                person_id = person.get('Id')
+                image_tag = person.get('PrimaryImageTag')
+                if person_id and image_tag:
+                    # 构建 Jellyfin 演员头像 URL
+                    actor_images[name] = f'/api/actor-image/{person_id}?tag={image_tag}'
 
     if actors:
         movie.actors = ','.join(actors)
+        # 总是更新 actor_images（新头像覆盖旧头像，没有的清空）
+        movie.actor_images = json.dumps(actor_images)
 
         # 更新演员统计
         for actor_name in actors:

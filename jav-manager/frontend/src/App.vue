@@ -4,44 +4,28 @@
     <header class="nav-header">
       <div class="nav-left">
         <router-link to="/" class="logo">
-          <span class="logo-icon">🎬</span>
+          <div class="logo-icon">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" fill="currentColor"/>
+            </svg>
+          </div>
           <span class="logo-text">JAV Manager</span>
         </router-link>
       </div>
+
       <nav class="nav-menu">
-        <router-link to="/" class="nav-item">
-          <el-icon><HomeFilled /></el-icon>
-          <span>首页</span>
-        </router-link>
-        <router-link to="/library" class="nav-item">
-          <el-icon><Film /></el-icon>
-          <span>影片库</span>
-        </router-link>
-        <router-link to="/charts" class="nav-item">
-          <el-icon><Trophy /></el-icon>
-          <span>榜单</span>
-        </router-link>
-        <router-link to="/discover" class="nav-item">
-          <el-icon><Compass /></el-icon>
-          <span>发现</span>
-        </router-link>
-        <router-link to="/todo" class="nav-item">
-          <el-icon><List /></el-icon>
-          <span>待看</span>
-        </router-link>
-        <router-link to="/actors" class="nav-item">
-          <el-icon><User /></el-icon>
-          <span>演员</span>
-        </router-link>
-        <router-link to="/settings" class="nav-item">
-          <el-icon><Setting /></el-icon>
-          <span>设置</span>
+        <router-link v-for="item in navItems" :key="item.path" :to="item.path" class="nav-item" :class="{ active: $route.path === item.path || $route.path.startsWith(item.path + '/') }">
+          <el-icon :size="18">
+            <component :is="item.icon" />
+          </el-icon>
+          <span class="nav-label">{{ item.label }}</span>
         </router-link>
       </nav>
+
       <div class="nav-right">
-        <el-button type="primary" size="default" @click="syncJellyfin" :loading="syncing">
+        <el-button type="primary" class="sync-btn" @click="syncJellyfin" :loading="syncing">
           <el-icon><Refresh /></el-icon>
-          同步
+          <span class="btn-text">同步</span>
         </el-button>
       </div>
     </header>
@@ -68,8 +52,28 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import {
+  HomeFilled,
+  Film,
+  Trophy,
+  Compass,
+  List,
+  User,
+  Setting,
+  Refresh
+} from '@element-plus/icons-vue'
 import MovieDetailModal from './components/MovieDetailModal.vue'
 import { moviesApi, tasksApi, todosApi } from './api'
+
+const navItems = [
+  { path: '/', label: '首页', icon: HomeFilled },
+  { path: '/library', label: '影片库', icon: Film },
+  { path: '/charts', label: '榜单', icon: Trophy },
+  { path: '/discover', label: '发现', icon: Compass },
+  { path: '/todo', label: '待看', icon: List },
+  { path: '/actors', label: '演员', icon: User },
+  { path: '/settings', label: '设置', icon: Setting },
+]
 
 const syncing = ref(false)
 const showMovieDetail = ref(false)
@@ -111,7 +115,6 @@ const addToTodo = async (movie) => {
 }
 
 onMounted(() => {
-  // 全局事件监听，用于打开影片详情
   window.showMovieDetail = (movie) => {
     currentMovie.value = movie
     showMovieDetail.value = true
@@ -124,14 +127,17 @@ onMounted(() => {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  background: var(--bg-primary);
 }
 
 /* 导航栏 */
 .nav-header {
-  background: #1a1a1a;
-  border-bottom: 1px solid #333;
-  padding: 0 24px;
-  height: 64px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-light);
+  padding: 0 32px;
+  height: 72px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -143,46 +149,80 @@ onMounted(() => {
 .nav-left .logo {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   text-decoration: none;
+  transition: transform 0.2s ease;
+}
+
+.nav-left .logo:hover {
+  transform: scale(1.02);
 }
 
 .logo-icon {
-  font-size: 24px;
+  width: 40px;
+  height: 40px;
+  background: var(--primary-gradient);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(232, 165, 152, 0.3);
+}
+
+.logo-icon svg {
+  width: 24px;
+  height: 24px;
 }
 
 .logo-text {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
-  color: #e50914;
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.5px;
 }
 
 .nav-menu {
   display: flex;
-  gap: 4px;
+  gap: 8px;
+  padding: 6px;
+  background: var(--bg-secondary);
+  border-radius: 16px;
 }
 
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 16px;
-  border-radius: 8px;
-  color: #a0a0a0;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  color: var(--text-secondary);
   text-decoration: none;
   font-size: 14px;
   font-weight: 500;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .nav-item:hover {
-  background: #2a2a2a;
-  color: #fff;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text-primary);
 }
 
-.nav-item.router-link-active {
-  background: linear-gradient(135deg, #e50914, #f40612);
-  color: #fff;
+.nav-item.active {
+  background: #fff;
+  color: var(--primary-color);
+  box-shadow: 0 2px 8px rgba(74, 74, 74, 0.08);
+}
+
+.nav-item .el-icon {
+  transition: transform 0.2s ease;
+}
+
+.nav-item:hover .el-icon {
+  transform: scale(1.1);
 }
 
 .nav-right {
@@ -190,38 +230,90 @@ onMounted(() => {
   gap: 12px;
 }
 
+.sync-btn {
+  padding: 10px 20px;
+  font-weight: 500;
+}
+
+.sync-btn .el-icon {
+  margin-right: 6px;
+}
+
 /* 主内容 */
 .main-content {
   flex: 1;
-  padding: 24px;
+  padding: 32px;
   max-width: 1600px;
   margin: 0 auto;
   width: 100%;
 }
 
+/* 路由动画 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
 /* 响应式 */
-@media (max-width: 768px) {
-  .nav-item span {
-    display: none;
+@media (max-width: 1024px) {
+  .nav-header {
+    padding: 0 20px;
+  }
+
+  .nav-menu {
+    gap: 4px;
   }
 
   .nav-item {
+    padding: 10px 14px;
+  }
+
+  .nav-label {
+    display: none;
+  }
+
+  .main-content {
+    padding: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  .nav-header {
+    height: 64px;
+    padding: 0 16px;
+  }
+
+  .logo-text {
+    display: none;
+  }
+
+  .nav-menu {
+    gap: 2px;
+    padding: 4px;
+    border-radius: 12px;
+  }
+
+  .nav-item {
+    padding: 8px 12px;
+    border-radius: 8px;
+  }
+
+  .btn-text {
+    display: none;
+  }
+
+  .sync-btn {
     padding: 10px 12px;
   }
 
   .main-content {
     padding: 16px;
   }
-}
-
-/* 路由动画 */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.15s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
 }
 </style>

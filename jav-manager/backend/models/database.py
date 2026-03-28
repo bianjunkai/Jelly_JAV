@@ -15,6 +15,7 @@ class Movie(Base):
     original_title = Column(String(500))
     year = Column(Integer)
     actors = Column(String(500))
+    actor_images = Column(Text)  # JSON: {"actor_name": "image_url", ...}
     date_added = Column(DateTime)
     jellyfin_id = Column(String(50))
     jellyfin_path = Column(String(1000))
@@ -42,6 +43,7 @@ class Movie(Base):
     score_history = relationship("ScoreHistory", back_populates="movie")
 
     def to_dict(self):
+        import json
         return {
             'id': self.id,
             'code': self.code,
@@ -49,6 +51,7 @@ class Movie(Base):
             'original_title': self.original_title,
             'year': self.year,
             'actors': self.actors.split(',') if self.actors else [],
+            'actor_images': json.loads(self.actor_images) if self.actor_images else {},
             'date_added': self.date_added.isoformat() if self.date_added else None,
             'jellyfin_id': self.jellyfin_id,
             'jellyfin_path': self.jellyfin_path,
