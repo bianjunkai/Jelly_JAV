@@ -8,14 +8,30 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 import config
 from models import Base
+from sqlalchemy import event
 
 # Flask app
 app = Flask(__name__, static_folder='static', template_folder='templates')
 app.config['SQLALCHEMY_DATABASE_URI'] = config.DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# 配置 SQLite WAL 模式以支持更好的并发
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'connect_args': {
+        'timeout': 30,
+        'check_same_thread': False
+    },
+    'pool_pre_ping': True
+}
 
 CORS(app)
 db = SQLAlchemy(app, model_class=Base)
+
+# 启用 SQLite WAL 模式 - 在应用上下文中注册事件监听器
+with app.app_context():
+    @event.listens_for(db.engine, 'connect')
+    def set_sqlite_pragma(dbapi_conn, connection_record):
+        dbapi_conn.execute('PRAGMA journal_mode=WAL')
+        dbapi_conn.execute('PRAGMA busy_timeout=30000')
 
 # Scheduler
 scheduler = BackgroundScheduler()
@@ -47,9 +63,12 @@ def save_config_to_file():
         'JELLYFIN_API_KEY': config.JELLYFIN_API_KEY,
         'JAVDB_DOMAINS': config.JAVDB_DOMAINS,
         'JAVBUS_DOMAINS': config.JAVBUS_DOMAINS,
+        'JAVLIBRARY_CSV_PATH': getattr(config, 'JAVLIBRARY_CSV_PATH', ''),
         'REQUEST_MIN_DELAY': config.REQUEST_MIN_DELAY,
         'REQUEST_MAX_DELAY': config.REQUEST_MAX_DELAY,
         'REQUEST_TIMEOUT': config.REQUEST_TIMEOUT,
+        'ENABLE_SYSTEM_PROXY': config.ENABLE_SYSTEM_PROXY,
+        'SYSTEM_PROXY_URL': config.SYSTEM_PROXY_URL,
         'WEIGHT_BASE': config.WEIGHT_BASE,
         'WEIGHT_JAVDB_HIGH': config.WEIGHT_JAVDB_HIGH,
         'WEIGHT_JAVDB_MEDIUM': config.WEIGHT_JAVDB_MEDIUM,
@@ -275,6 +294,167 @@ def toggle_actor_follow(actor_id):
     return jsonify({'id': actor.id, 'is_followed': actor.is_followed})
 
 
+@app.route('/api/actors/refresh-photos', methods=['POST'])
+def refresh_actor_photos():
+    """刷新所有演员的头像URL
+
+    遍历所有演员，设置 photo_url 为 /api/actor-image/{encoded_name}
+    用于初始化或修复缺失的头像URL
+    """
+    import urllib.parse
+    from models import Actor
+
+    actors = db.session.query(Actor).all()
+    count = 0
+    for actor in actors:
+        encoded_name = urllib.parse.quote(actor.name)
+        actor.photo_url = f'/api/actor-image/{encoded_name}'
+        count += 1
+
+    db.session.commit()
+    return jsonify({'success': True, 'count': count})
+
+
+@app.route('/api/actors/<int:actor_id>/releases', methods=['GET'])
+def get_actor_releases(actor_id):
+    """获取演员的新片列表（JavBus）"""
+    from models import Actor, ActorRelease, Movie
+
+    actor = db.session.get(Actor, actor_id)
+    if not actor:
+        return jsonify({'error': 'Actor not found'}), 404
+
+    releases = db.session.query(ActorRelease).filter_by(actor_id=actor_id).order_by(ActorRelease.detected_at.desc()).all()
+
+    # 获取所有本地影片的番号，用于标记已入库
+    local_codes = {m.code for m in db.session.query(Movie).all()}
+
+    releases_data = []
+    for r in releases:
+        data = r.to_dict()
+        data['in_library'] = r.code in local_codes
+        releases_data.append(data)
+
+    return jsonify({
+        'actor_id': actor_id,
+        'actor_name': actor.name,
+        'javbus_id': actor.javbus_id,
+        'releases': releases_data,
+        'total': len(releases_data)
+    })
+
+
+@app.route('/api/actors/<int:actor_id>/fetch-releases', methods=['POST'])
+def fetch_actor_releases(actor_id):
+    """从 JavDB 获取演员新片
+
+    在后台线程中运行
+    """
+    from models import Actor
+
+    actor = db.session.get(Actor, actor_id)
+    if not actor:
+        return jsonify({'error': 'Actor not found'}), 404
+
+    # 检查该演员是否有本地影片（用于查找 JavDB 链接）
+    from models import Movie
+    movies_with_actor = db.session.query(Movie).filter(Movie.actors.contains(actor.name)).all()
+    if not movies_with_actor:
+        return jsonify({'error': 'Actor has no movies in library'}), 400
+
+    import threading
+    import logging
+
+    def background_fetch():
+        logger = logging.getLogger(__name__)
+        logger.info(f"[ActorReleases] Starting background fetch for actor_id={actor_id}")
+        result = _fetch_actor_releases_thread(actor_id, app, db)
+        logger.info(f"[ActorReleases] Background fetch completed for actor_id={actor_id}: {result}")
+
+    thread = threading.Thread(target=background_fetch)
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({'status': 'started', 'message': f'Fetching releases for actor {actor_id}'})
+
+
+def _fetch_actor_releases_thread(actor_id: int, app=None, db=None) -> dict:
+    """后台线程中从 JavDB 获取演员新片"""
+    from services.javdb_scraper import fetch_actor_releases as javdb_fetch_actor_releases
+
+    if app is None:
+        from app import app as current_app
+        app = current_app
+    if db is None:
+        from app import db as current_db
+        db = current_db
+
+    with app.app_context():
+        return javdb_fetch_actor_releases(actor_id, db=db, limit_months=3)
+
+
+@app.route('/api/actors/fetch-all-releases', methods=['POST'])
+def fetch_all_actor_releases():
+    """为所有已关注演员获取新片（从 JavDB）
+
+    在后台线程中运行
+    """
+    import threading
+
+    def background_fetch():
+        _fetch_all_releases_thread(app, db)
+
+    thread = threading.Thread(target=background_fetch)
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({'status': 'started', 'message': 'Fetching releases for all followed actors'})
+
+
+def _fetch_all_releases_thread(app=None, db=None):
+    """后台线程中执行的全量爬取（从 JavDB）"""
+    import logging
+    from services.javdb_scraper import fetch_actor_releases as javdb_fetch_actor_releases
+
+    if app is None:
+        from app import app as current_app
+        app = current_app
+    if db is None:
+        from app import db as current_db
+        db = current_db
+
+    logger = logging.getLogger(__name__)
+
+    with app.app_context():
+        from models import Actor, Movie
+
+        logger.info("[ActorReleases] Starting background fetch for all followed actors from JavDB")
+
+        # 获取所有已关注的演员（需要有本地影片才能查找 JavDB 链接）
+        actors = db.session.query(Actor).filter(Actor.is_followed == True).all()
+
+        # 过滤出有本地影片的演员
+        actors_with_movies = []
+        for actor in actors:
+            movies_with_actor = db.session.query(Movie).filter(Movie.actors.contains(actor.name)).first()
+            if movies_with_actor:
+                actors_with_movies.append(actor)
+
+        logger.info(f"[ActorReleases] Found {len(actors_with_movies)} actors to fetch")
+
+        total_added = 0
+        for actor in actors_with_movies:
+            try:
+                result = javdb_fetch_actor_releases(actor.id, db=db, limit_months=3)
+                if result.get('success') and result.get('items_added', 0) > 0:
+                    total_added += result['items_added']
+                    logger.info(f"[ActorReleases] {actor.name}: added {result['items_added']} releases")
+            except Exception as e:
+                logger.error(f"Error fetching actor {actor.name}: {e}")
+
+        logger.info(f"[ActorReleases] Background fetch completed. Total added: {total_added}")
+
+
 @app.route('/api/charts', methods=['GET'])
 def get_charts():
     """获取榜单列表"""
@@ -286,14 +466,18 @@ def get_charts():
     for chart in charts:
         chart_dict = chart.to_dict()
 
+        # 统计实际条目数（从数据库中实际获取的数量）
+        actual_count = db.session.query(ChartItem).filter_by(chart_id=chart.id).count()
+
         # 统计已收藏
         collected = db.session.query(ChartItem).filter_by(chart_id=chart.id).filter(
             ChartItem.movie_id.isnot(None)
         ).count()
 
+        chart_dict['actual_count'] = actual_count
         chart_dict['collected'] = collected
-        chart_dict['missing'] = chart.total_count - collected
-        chart_dict['coverage_percent'] = round(collected / chart.total_count * 100, 1) if chart.total_count > 0 else 0
+        chart_dict['missing'] = actual_count - collected
+        chart_dict['coverage_percent'] = round(collected / actual_count * 100, 1) if actual_count > 0 else 0
 
         result.append(chart_dict)
 
@@ -407,9 +591,9 @@ def refresh_chart(name):
     if not chart:
         return jsonify({'error': 'Chart not found'}), 404
 
-    # 后台任务
+    # 后台任务 - 传递 app 和 db 实例
     import threading
-    thread = threading.Thread(target=scrape_chart, args=(chart,))
+    thread = threading.Thread(target=scrape_chart, args=(chart, app, db))
     thread.daemon = True
     thread.start()
 
@@ -449,11 +633,11 @@ def generate_report():
     report_type = request.json.get('type', 'weekly')
 
     if report_type == 'weekly':
-        result = generate_weekly_report()
+        result = generate_weekly_report(app, db)
     elif report_type == 'monthly':
-        result = generate_monthly_report()
+        result = generate_monthly_report(app, db)
     elif report_type == 'annual':
-        result = generate_annual_report()
+        result = generate_annual_report(app, db)
     else:
         return jsonify({'error': 'Invalid report type'}), 400
 
@@ -651,6 +835,25 @@ def update_scores():
     return jsonify({'status': 'started', 'message': 'Score update started'})
 
 
+@app.route('/api/tasks/weighted-scores', methods=['POST'])
+def recalculate_weighted_scores():
+    """重新计算所有影片的加权分"""
+    from services.score_updater import calculate_weighted_score
+
+    movies = db.session.query(Movie).filter(Movie.code.isnot(None)).all()
+    updated = 0
+    for movie in movies:
+        old_score = movie.weighted_score
+        new_score = calculate_weighted_score(movie)
+        if old_score != new_score:
+            movie.weighted_score = new_score
+            updated += 1
+
+    db.session.commit()
+
+    return jsonify({'status': 'completed', 'updated': updated, 'total': len(movies)})
+
+
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     """获取统计数据"""
@@ -683,9 +886,12 @@ def get_config():
         'jellyfin_api_key': config.JELLYFIN_API_KEY,
         'javdb_domains': config.JAVDB_DOMAINS,
         'javbus_domains': config.JAVBUS_DOMAINS,
+        'javlibrary_csv_path': getattr(config, 'JAVLIBRARY_CSV_PATH', ''),
         'request_min_delay': config.REQUEST_MIN_DELAY,
         'request_max_delay': config.REQUEST_MAX_DELAY,
         'request_timeout': config.REQUEST_TIMEOUT,
+        'enable_system_proxy': config.ENABLE_SYSTEM_PROXY,
+        'system_proxy_url': config.SYSTEM_PROXY_URL,
         'weight_base': config.WEIGHT_BASE,
         'weight_javdb_high': config.WEIGHT_JAVDB_HIGH,
         'weight_javdb_medium': config.WEIGHT_JAVDB_MEDIUM,
@@ -720,12 +926,18 @@ def update_config():
         config.JAVDB_DOMAINS = data['javdb_domains']
     if 'javbus_domains' in data:
         config.JAVBUS_DOMAINS = data['javbus_domains']
+    if 'javlibrary_csv_path' in data:
+        config.JAVLIBRARY_CSV_PATH = data['javlibrary_csv_path']
     if 'request_min_delay' in data:
         config.REQUEST_MIN_DELAY = data['request_min_delay']
     if 'request_max_delay' in data:
         config.REQUEST_MAX_DELAY = data['request_max_delay']
     if 'request_timeout' in data:
         config.REQUEST_TIMEOUT = data['request_timeout']
+    if 'enable_system_proxy' in data:
+        config.ENABLE_SYSTEM_PROXY = data['enable_system_proxy']
+    if 'system_proxy_url' in data:
+        config.SYSTEM_PROXY_URL = data['system_proxy_url']
     if 'weight_base' in data:
         config.WEIGHT_BASE = data['weight_base']
     if 'weight_javdb_high' in data:
@@ -752,15 +964,58 @@ def update_config():
     return jsonify({'success': True})
 
 
+@app.route('/api/config/test-csv', methods=['POST'])
+def test_csv_path():
+    """测试 JavLibrary CSV 文件路径是否有效"""
+    data = request.json
+    csv_path = data.get('path', '')
+
+    if not csv_path:
+        return jsonify({'valid': False, 'error': '路径不能为空'}), 400
+
+    # 如果是相对路径，转换为绝对路径（基于项目根目录）
+    if not os.path.isabs(csv_path):
+        from services.chart_scraper import get_project_base_dir
+        project_dir = get_project_base_dir()
+        csv_path = os.path.join(project_dir, csv_path)
+        csv_path = os.path.normpath(csv_path)
+
+    if not os.path.exists(csv_path):
+        return jsonify({'valid': False, 'error': f'文件不存在: {csv_path}'}), 400
+
+    try:
+        # 尝试解析 CSV 文件
+        from services.chart_scraper import parse_javlibrary_csv
+        items = parse_javlibrary_csv(csv_path)
+
+        if items is None or len(items) == 0:
+            return jsonify({'valid': False, 'error': '无法解析 CSV 文件或文件为空'}), 400
+
+        return jsonify({
+            'valid': True,
+            'count': len(items),
+            'resolved_path': csv_path,
+            'first_item': items[0] if items else None
+        })
+
+    except Exception as e:
+        return jsonify({'valid': False, 'error': str(e)}), 400
+
+
 @app.route('/api/config/charts', methods=['GET'])
 def get_config_charts():
     """获取已配置的可爬取榜单"""
-    # 返回支持的榜单类型
+    from config import JAVDB_YEAR_CHART_YEARS
+
+    # 构建年份榜单列表
+    year_charts = [
+        {'name': f'JavDB {year} TOP250', 'source': 'javdb', 'type': 'year', 'year': year, 'total': 250}
+        for year in JAVDB_YEAR_CHART_YEARS
+    ]
+
     return jsonify([
         {'name': 'JavDB TOP250', 'source': 'javdb', 'type': 'all', 'total': 250},
-        {'name': 'JavDB 2024 TOP250', 'source': 'javdb', 'type': 'year', 'year': 2024, 'total': 250},
-        {'name': 'JavDB 2025 TOP250', 'source': 'javdb', 'type': 'year', 'year': 2025, 'total': 250},
-        {'name': 'JavDB 2026 TOP250', 'source': 'javdb', 'type': 'year', 'year': 2026, 'total': 250},
+    ] + year_charts + [
         {'name': 'JavLibrary TOP500', 'source': 'javlibrary', 'type': 'all', 'total': 500}
     ])
 
@@ -821,24 +1076,63 @@ def get_poster(jellyfin_id):
     return Response(placeholder_svg.encode('utf-8'), mimetype='image/svg+xml')
 
 
-@app.route('/api/actor-image/<person_id>', methods=['GET'])
-def get_actor_image(person_id):
-    """获取 Jellyfin 演员头像"""
+@app.route('/api/actor-image/<path:actor_name>', methods=['GET'])
+def get_actor_image(actor_name):
+    """获取 Jellyfin 演员头像
+
+    通过演员名字查询 Jellyfin People API 获取头像
+    参考 legacy 版本实现
+    """
     import requests as req
     from flask import Response
+    import urllib.parse
 
-    image_tag = request.args.get('tag', '')
-    url = f"{config.JELLYFIN_URL}Items/{person_id}/Images/Person"
-    if image_tag:
-        url += f"?tag={image_tag}"
-    headers = {'X-MediaBrowser-Token': config.JELLYFIN_API_KEY}
+    # 确保加载最新配置
+    load_config_from_file()
 
+    actor_name_decoded = urllib.parse.unquote(actor_name)
+    actor_name_encoded = urllib.parse.quote(actor_name_decoded)
+
+    # 使用 X-Emby-Token (legacy 版本兼容)
+    headers = {'X-Emby-Token': config.JELLYFIN_API_KEY}
+    base_url = config.JELLYFIN_URL.rstrip('/')
+
+    # 方法1: 使用 /Items/ByName/People/{name} (legacy 版本方式)
     try:
-        resp = req.get(url, headers=headers, timeout=10)
+        byname_url = f"{base_url}/Items/ByName/People/{actor_name_encoded}"
+        resp = req.get(byname_url, headers=headers, timeout=10)
         if resp.status_code == 200:
-            return Response(resp.content, mimetype='image/jpeg')
-    except Exception:
-        pass
+            data = resp.json()
+            if data.get("Id"):
+                person_id = data.get("Id")
+                # 使用 maxWidth=200 (legacy 版本方式)
+                image_url = f"{base_url}/Items/{person_id}/Images/Primary?maxWidth=200"
+                img_resp = req.get(image_url, headers=headers, timeout=10)
+                if img_resp.status_code == 200:
+                    content_type = img_resp.headers.get('Content-Type', 'image/jpeg')
+                    return Response(img_resp.content, mimetype=content_type)
+    except Exception as e:
+        print(f"Actor image error (ByName): {e}")
+
+    # 方法2: 使用 /Persons 搜索 (legacy 版本 fallback)
+    try:
+        persons_url = f"{base_url}/Persons"
+        params = {"searchTerm": actor_name_decoded, "limit": 10}
+        resp = req.get(persons_url, headers=headers, params=params, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            for item in data.get("Items", []):
+                if item.get("Name") == actor_name_decoded:
+                    person_id = item.get("Id")
+                    if person_id:
+                        # 使用 maxWidth=200 (legacy 版本方式)
+                        image_url = f"{base_url}/Items/{person_id}/Images/Primary?maxWidth=200"
+                        img_resp = req.get(image_url, headers=headers, timeout=10)
+                        if img_resp.status_code == 200:
+                            content_type = img_resp.headers.get('Content-Type', 'image/jpeg')
+                            return Response(img_resp.content, mimetype=content_type)
+    except Exception as e:
+        print(f"Actor image error (Persons): {e}")
 
     # 返回占位 SVG（人物头像）
     placeholder_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="#333" width="100" height="100" rx="50"/><circle cx="50" cy="35" r="18" fill="#666"/><ellipse cx="50" cy="80" rx="30" ry="20" fill="#666"/></svg>'
@@ -874,7 +1168,7 @@ def init_scheduler():
 
     # 每周一 09:00
     scheduler.add_job(
-        generate_weekly_report,
+        lambda: generate_weekly_report(app, db),
         'cron',
         day_of_week='mon',
         hour=9,
@@ -884,7 +1178,7 @@ def init_scheduler():
 
     # 每月1日 09:00
     scheduler.add_job(
-        generate_monthly_report,
+        lambda: generate_monthly_report(app, db),
         'cron',
         day=1,
         hour=9,
@@ -894,7 +1188,7 @@ def init_scheduler():
 
     # 每半年（1月和7月）生成年报
     scheduler.add_job(
-        generate_annual_report,
+        lambda: generate_annual_report(app, db),
         'cron',
         month='1,7',
         day=1,

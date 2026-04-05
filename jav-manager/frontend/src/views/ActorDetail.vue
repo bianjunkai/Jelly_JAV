@@ -40,13 +40,23 @@
         </div>
 
         <div class="actor-links">
-          <el-button v-if="actor.javdb_id" size="large" @click="openJavDB">
+          <el-button v-if="actor.javdb_id" size="large" @click="openJavDBMovie">
             <el-icon><Link /></el-icon>
-            JavDB
+            JavDB 影片
           </el-button>
-          <el-button v-if="actor.javbus_id" size="large" @click="openJavBus">
-            <el-icon><Link /></el-icon>
-            JAVBus
+          <el-button v-if="actor.javdb_id" size="large" @click="openJavDBActor">
+            <el-icon><User /></el-icon>
+            JavDB 演员页
+          </el-button>
+          <el-button
+            v-if="actor.is_followed"
+            size="large"
+            type="primary"
+            :loading="fetchingReleases"
+            @click="fetchActorReleases"
+          >
+            <el-icon><Refresh /></el-icon>
+            获取新片
           </el-button>
         </div>
 
@@ -140,12 +150,49 @@
           <p>暂无缺失记录</p>
         </div>
       </el-tab-pane>
+
+      <!-- 演员新片 -->
+      <el-tab-pane label="演员新片" name="releases">
+        <div v-if="actorReleases.length" class="releases-list">
+          <div
+            v-for="item in actorReleases"
+            :key="item.code"
+            class="release-item"
+            :class="{ 'in-library': item.in_library, 'in-todo': item.in_todo }"
+          >
+            <div class="release-main">
+              <span class="release-code">{{ item.code }}</span>
+              <span class="release-title">{{ item.title || '未知标题' }}</span>
+              <span v-if="item.release_date" class="release-date">{{ item.release_date }}</span>
+              <el-tag v-if="item.is_released === false" size="small" type="warning">未发行</el-tag>
+            </div>
+            <div class="release-actions">
+              <el-tag v-if="item.in_library" size="small" type="success">已入库</el-tag>
+              <el-tag v-else-if="item.in_todo" size="small" type="info">已待看</el-tag>
+              <el-button
+                v-else
+                size="small"
+                type="primary"
+                @click="addReleaseToTodo(item)"
+              >
+                <el-icon><Plus /></el-icon>
+                加入待看
+              </el-button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty-tab">
+          <el-icon size="48"><VideoCamera /></el-icon>
+          <p>暂无追踪到的新片</p>
+          <p class="empty-hint">点击"获取新片"按钮从 JavDB 获取</p>
+        </div>
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -156,13 +203,18 @@ import {
   Plus,
   Picture,
   Trophy,
-  CircleCheck
+  CircleCheck,
+  Refresh,
+  VideoCamera,
+  User
 } from '@element-plus/icons-vue'
 import { actorsApi, todosApi } from '../api'
 
 const route = useRoute()
 const actor = ref(null)
 const activeTab = ref('movies')
+const fetchingReleases = ref(false)
+const actorReleases = ref([])
 
 const actorName = computed(() => decodeURIComponent(route.params.name))
 
@@ -201,6 +253,32 @@ const toggleFollow = async () => {
   }
 }
 
+const loadActorReleases = async () => {
+  if (!actor.value?.id) return
+  try {
+    const result = await actorsApi.getReleases(actor.value.id)
+    actorReleases.value = result.releases || []
+  } catch (e) {
+    console.error('获取演员新片失败:', e)
+  }
+}
+
+const addReleaseToTodo = async (item) => {
+  try {
+    await todosApi.add({
+      code: item.code,
+      title: item.title,
+      actors: actorName.value,
+      source: 'actor_release',
+      source_detail: `演员新片-${actorName.value}`
+    })
+    ElMessage.success('已加入待看清单')
+    item.in_todo = true
+  } catch (e) {
+    ElMessage.error('添加失败')
+  }
+}
+
 const showMovieDetail = (movie) => {
   window.showMovieDetail(movie)
 }
@@ -224,13 +302,48 @@ const addToTodo = async (item) => {
   }
 }
 
-const openJavDB = () => {
+const openJavDBMovie = () => {
+  // 打开该演员在 JavDB 的影片页面（使用第一个影片的链接逻辑）
+  if (actor.value?.movies?.length > 0 && actor.value.movies[0].javdb_id) {
+    window.open(`https://javdb.com/v/${actor.value.movies[0].javdb_id}`)
+  } else {
+    ElMessage.info('暂无 JavDB 影片链接')
+  }
+}
+
+const openJavDBActor = () => {
+  // 打开 JavDB 演员页面
   window.open(`https://javdb.com/actors/${actor.value.javdb_id}`)
 }
 
-const openJavBus = () => {
-  window.open(`https://javbus.com/actor/${actor.value.javbus_id}`)
+const fetchActorReleases = async () => {
+  if (!actor.value?.id) return
+  fetchingReleases.value = true
+  try {
+    const result = await actorsApi.fetchReleases(actor.value.id)
+    if (result.status === 'started') {
+      ElMessage.success('新片获取任务已启动，将在后台执行，请稍后查看')
+      // 延迟 3 秒后自动刷新新片列表并切换到新片标签页
+      setTimeout(() => {
+        loadActorReleases()
+        activeTab.value = 'releases'
+      }, 3000)
+    } else {
+      ElMessage.info(result.message || '任务已启动')
+    }
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || '启动任务失败')
+  } finally {
+    fetchingReleases.value = false
+  }
 }
+
+// 监听标签页切换，切换到新片标签时加载数据
+watch(activeTab, (tab) => {
+  if (tab === 'releases') {
+    loadActorReleases()
+  }
+})
 
 onMounted(() => {
   fetchActor()
@@ -609,6 +722,69 @@ onMounted(() => {
   font-size: 15px;
   font-weight: 600;
   color: var(--primary-color);
+}
+
+/* 演员新片列表 */
+.releases-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.release-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+}
+
+.release-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.release-item.in-library {
+  opacity: 0.6;
+  background: var(--bg-card);
+}
+
+.release-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+}
+
+.release-code {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--primary-color);
+  min-width: 100px;
+}
+
+.release-title {
+  font-size: 14px;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.release-date {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.release-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.empty-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 8px;
 }
 
 /* 空状态 */

@@ -7,7 +7,9 @@ from .database import (
     Report,
     TodoItem,
     ScoreHistory,
-    TaskLog
+    TaskLog,
+    JavLibraryRawData,
+    ActorRelease
 )
 
 __all__ = [
@@ -19,5 +21,7 @@ __all__ = [
     'Report',
     'TodoItem',
     'ScoreHistory',
-    'TaskLog'
+    'TaskLog',
+    'JavLibraryRawData',
+    'ActorRelease'
 ]

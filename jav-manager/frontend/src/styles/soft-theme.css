@@ -1,0 +1,246 @@
+/* 清爽柔和主题 - Soft Cream Theme */
+
+:root {
+  /* 主色调 - 柔和的玫瑰色系 */
+  --primary-color: #E8A598;
+  --primary-light: #F5D5CE;
+  --primary-dark: #C97E75;
+
+  /* 背景色 - 温暖的奶油色系 */
+  --bg-primary: #FAF7F2;
+  --bg-secondary: #F5F0E8;
+  --bg-tertiary: #EDE8DE;
+  --bg-card: #FFFFFF;
+
+  /* 文字色 - 柔和的深灰色 */
+  --text-primary: #4A4A4A;
+  --text-secondary: #7A7A7A;
+  --text-tertiary: #A0A0A0;
+  --text-muted: #B8B0A5;
+
+  /* 强调色 */
+  --accent-gold: #D4A574;
+  --accent-green: #8FB996;
+  --accent-blue: #8FB8CD;
+  --accent-purple: #B8A9C9;
+
+  /* 评分色 */
+  --score-high: #E8A598;
+  --score-mid: #D4A574;
+  --score-low: #A8A8A8;
+
+  /* 边框和阴影 */
+  --border-color: #E8E3DA;
+  --border-light: #F0EBE2;
+  --shadow-soft: 0 2px 12px rgba(74, 74, 74, 0.06);
+  --shadow-hover: 0 8px 24px rgba(74, 74, 74, 0.12);
+  --shadow-card: 0 4px 16px rgba(74, 74, 74, 0.08);
+
+  /* 圆角 */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  /* 间距 */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
+  /* 字体 */
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* 全局样式 */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-family);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Element Plus 主题覆盖 */
+.el-button--primary {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+  border-radius: var(--radius-md);
+  transition: all 0.3s ease;
+}
+
+.el-button--primary:hover {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
+}
+
+.el-input__wrapper {
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 1px var(--border-color) inset;
+}
+
+.el-input__inner {
+  color: var(--text-primary);
+}
+
+.el-select .el-input__wrapper {
+  background: var(--bg-card);
+}
+
+.el-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  transition: all 0.3s ease;
+}
+
+.el-card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.el-table {
+  background: transparent;
+  --el-table-row-hover-bg-color: var(--bg-secondary);
+  --el-table-header-bg-color: var(--bg-tertiary);
+  --el-table-border-color: var(--border-color);
+}
+
+.el-table th.el-table__cell {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.el-pagination .btn-prev,
+.el-pagination .btn-next,
+.el-pager li {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+
+.el-pager li.is-active {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+
+.el-tag {
+  border-radius: var(--radius-sm);
+}
+
+.el-dialog {
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-hover);
+}
+
+.el-dialog__header {
+  border-bottom: 1px solid var(--border-light);
+  padding: 20px 24px;
+}
+
+.el-dialog__title {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.el-dialog__body {
+  padding: 24px;
+}
+
+.el-radio-button__inner {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+}
+
+.el-radio-button__original-radio:checked + .el-radio-button__inner {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+
+/* 评分徽章 */
+.score-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.score-high {
+  background: linear-gradient(135deg, #F5D5CE, #E8A598);
+  color: #fff;
+}
+
+.score-mid {
+  background: linear-gradient(135deg, #F0E0D0, #D4A574);
+  color: #fff;
+}
+
+.score-low {
+  background: linear-gradient(135deg, #E8E8E8, #B8B8B8);
+  color: #fff;
+}
+
+/* 列表徽章 */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* 动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.4s ease-out;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

@@ -44,19 +44,25 @@ class Movie(Base):
 
     def to_dict(self):
         import json
+
+        def decode_if_bytes(val):
+            if isinstance(val, bytes):
+                return val.decode('utf-8', errors='replace')
+            return val
+
         return {
             'id': self.id,
-            'code': self.code,
-            'title': self.title,
-            'original_title': self.original_title,
+            'code': decode_if_bytes(self.code),
+            'title': decode_if_bytes(self.title),
+            'original_title': decode_if_bytes(self.original_title),
             'year': self.year,
-            'actors': self.actors.split(',') if self.actors else [],
+            'actors': decode_if_bytes(self.actors).split(',') if self.actors else [],
             'actor_images': json.loads(self.actor_images) if self.actor_images else {},
             'date_added': self.date_added.isoformat() if self.date_added else None,
-            'jellyfin_id': self.jellyfin_id,
-            'jellyfin_path': self.jellyfin_path,
+            'jellyfin_id': decode_if_bytes(self.jellyfin_id),
+            'jellyfin_path': decode_if_bytes(self.jellyfin_path),
             'javdb_score': self.javdb_score,
-            'javdb_id': self.javdb_id,
+            'javdb_id': decode_if_bytes(self.javdb_id),
             'weighted_score': self.weighted_score,
             'discovered_at': self.discovered_at.isoformat() if self.discovered_at else None,
             'badges': self.get_badges(),
@@ -97,13 +103,18 @@ class Actor(Base):
     updated_at = Column(DateTime, onupdate=datetime.utcnow)
 
     def to_dict(self):
+        def decode_if_bytes(val):
+            if isinstance(val, bytes):
+                return val.decode('utf-8', errors='replace')
+            return val
+
         return {
             'id': self.id,
-            'name': self.name,
-            'name_en': self.name_en,
-            'javbus_id': self.javbus_id,
-            'javdb_id': self.javdb_id,
-            'photo_url': self.photo_url,
+            'name': decode_if_bytes(self.name),
+            'name_en': decode_if_bytes(self.name_en),
+            'javbus_id': decode_if_bytes(self.javbus_id),
+            'javdb_id': decode_if_bytes(self.javdb_id),
+            'photo_url': decode_if_bytes(self.photo_url),
             'is_followed': self.is_followed,
             'movie_count': self.movie_count,
             'avg_score': self.avg_score
@@ -282,4 +293,79 @@ class TaskLog(Base):
             'started_at': self.started_at.isoformat() if self.started_at else None,
             'finished_at': self.finished_at.isoformat() if self.finished_at else None,
             'details': json.loads(self.details) if self.details else None
+        }
+
+
+class JavLibraryRawData(Base):
+    """JavLibrary 原始数据（从 CSV 导入）"""
+    __tablename__ = 'javlibrary_raw_data'
+
+    id = Column(Integer, primary_key=True)
+    rank = Column(Integer, nullable=False)
+    page = Column(Integer)
+    code = Column(String(20), nullable=False)
+    title = Column(String(500))
+    score = Column(Float)
+    url = Column(String(500))
+    crawl_time = Column(DateTime)
+    imported_at = Column(DateTime, default=datetime.utcnow)
+
+    # 关联到榜单批次
+    batch_id = Column(String(50), index=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'rank': self.rank,
+            'page': self.page,
+            'code': self.code,
+            'title': self.title,
+            'score': self.score,
+            'url': self.url,
+            'crawl_time': self.crawl_time.isoformat() if self.crawl_time else None,
+            'imported_at': self.imported_at.isoformat() if self.imported_at else None,
+            'batch_id': self.batch_id
+        }
+
+
+class ActorRelease(Base):
+    """演员新片追踪（JavBus）"""
+    __tablename__ = 'actor_releases'
+
+    id = Column(Integer, primary_key=True)
+    actor_id = Column(Integer, ForeignKey('actors.id'), nullable=False)
+
+    code = Column(String(20), nullable=False)
+    title = Column(String(500))
+    release_date = Column(String(20))
+
+    source_type = Column(String(20), default='javbus')
+    is_released = Column(Boolean, default=True)  # 是否已发布（可能在 JavBus 上还未发行）
+    detected_at = Column(DateTime, default=datetime.utcnow)
+
+    # 是否已加入待看
+    in_todo = Column(Boolean, default=False)
+    # 是否已下载/观看
+    is_watched = Column(Boolean, default=False)
+
+    actor = relationship("Actor")
+
+    __table_args__ = (
+        Index('idx_actor_release_unique', 'actor_id', 'code', unique=True),
+        Index('idx_actor_release_detected', 'detected_at'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'actor_id': self.actor_id,
+            'actor_name': self.actor.name if self.actor else None,
+            'code': self.code,
+            'title': self.title,
+            'release_date': self.release_date,
+            'source_type': self.source_type,
+            'is_released': self.is_released,
+            'detected_at': self.detected_at.isoformat() if self.detected_at else None,
+            'in_todo': self.in_todo,
+            'is_watched': self.is_watched
         }

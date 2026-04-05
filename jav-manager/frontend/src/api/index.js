@@ -31,7 +31,10 @@ export const moviesApi = {
 export const actorsApi = {
   list: (params) => api.get('/actors', { params }),
   get: (name) => api.get(`/actors/${name}`),
-  follow: (id) => api.put(`/actors/${id}/follow`)
+  follow: (id) => api.put(`/actors/${id}/follow`),
+  getReleases: (id) => api.get(`/actors/${id}/releases`),
+  fetchReleases: (id) => api.post(`/actors/${id}/fetch-releases`),
+  fetchAllReleases: () => api.post('/actors/fetch-all-releases')
 }
 
 // 榜单 API
@@ -63,7 +66,8 @@ export const todosApi = {
 export const tasksApi = {
   status: () => api.get('/tasks'),
   sync: () => api.post('/tasks/sync'),
-  updateScores: () => api.post('/tasks/scores')
+  updateScores: () => api.post('/tasks/scores'),
+  recalculateWeightedScores: () => api.post('/tasks/weighted-scores')
 }
 
 // 统计 API
@@ -75,7 +79,8 @@ export const statsApi = {
 export const configApi = {
   get: () => api.get('/config'),
   update: (data) => api.put('/config', data),
-  getCharts: () => api.get('/config/charts')
+  getCharts: () => api.get('/config/charts'),
+  testCsvPath: (path) => api.post('/config/test-csv', { path })
 }
 
 // 榜单管理 API

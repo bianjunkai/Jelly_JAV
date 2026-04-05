@@ -102,6 +102,9 @@ def sync_from_jellyfin():
                 task.message = f'Processing: {code}'
                 db.session.commit()
 
+            # 关联榜单条目与影片
+            link_movies_to_charts()
+
             # 清理任务日志
             task.status = 'completed'
             task.progress = 100
@@ -115,6 +118,34 @@ def sync_from_jellyfin():
             task.message = f'Error: {str(e)}'
             task.finished_at = datetime.utcnow()
             db.session.commit()
+
+
+def link_movies_to_charts():
+    """关联榜单条目与影片数据库
+
+    根据番号(code)匹配 ChartItem 和 Movie，更新 ChartItem.movie_id
+    """
+    from app import db
+    from models import ChartItem, Movie
+
+    logger.info("[LINK] Starting to link chart items to movies")
+
+    # 获取所有未关联的榜单条目
+    unlinked_items = ChartItem.query.filter(ChartItem.movie_id.is_(None)).all()
+
+    linked_count = 0
+    for item in unlinked_items:
+        if not item.code:
+            continue
+
+        # 查找匹配的影片
+        movie = Movie.query.filter_by(code=item.code).first()
+        if movie:
+            item.movie_id = movie.id
+            linked_count += 1
+
+    db.session.commit()
+    logger.info(f"[LINK] Linked {linked_count} chart items to movies")
 
 
 def extract_code(title):
@@ -160,7 +191,11 @@ def update_movie_actors(code, people, jellyfin_item=None):
                 actors.append(name)
                 # 获取演员头像 URL
                 person_id = person.get('Id')
+                # 尝试获取头像标签，可能是 PrimaryImageTag 或 ImageTags.Primary
                 image_tag = person.get('PrimaryImageTag')
+                if not image_tag:
+                    image_tags = person.get('ImageTags', {})
+                    image_tag = image_tags.get('Primary')
                 if person_id and image_tag:
                     # 构建 Jellyfin 演员头像 URL
                     actor_images[name] = f'/api/actor-image/{person_id}?tag={image_tag}'
@@ -170,12 +205,17 @@ def update_movie_actors(code, people, jellyfin_item=None):
         # 总是更新 actor_images（新头像覆盖旧头像，没有的清空）
         movie.actor_images = json.dumps(actor_images)
 
-        # 更新演员统计
+        # 更新演员统计和头像
         for actor_name in actors:
             actor = Actor.query.filter_by(name=actor_name).first()
             if not actor:
                 actor = Actor(name=actor_name)
                 db.session.add(actor)
+
+            # 更新演员头像（使用演员名字作为URL参数）
+            import urllib.parse
+            encoded_name = urllib.parse.quote(actor_name)
+            actor.photo_url = f'/api/actor-image/{encoded_name}'
 
             # 更新统计
             actor.movie_count = Movie.query.filter(

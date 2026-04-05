@@ -64,7 +64,7 @@
                 <span class="stat-label">缺失</span>
               </div>
               <div class="stat-box">
-                <span class="stat-value">{{ chart.total_count }}</span>
+                <span class="stat-value">{{ chart.actual_count || chart.total_count }}</span>
                 <span class="stat-label">总数</span>
               </div>
             </div>
@@ -142,7 +142,7 @@
                 <span class="stat-label">缺失</span>
               </div>
               <div class="stat-box">
-                <span class="stat-value">{{ chart.total_count }}</span>
+                <span class="stat-value">{{ chart.actual_count || chart.total_count }}</span>
                 <span class="stat-label">总数</span>
               </div>
             </div>

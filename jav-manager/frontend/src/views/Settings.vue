@@ -142,6 +142,87 @@
         </div>
       </div>
 
+      <!-- 系统代理 -->
+      <div class="settings-card">
+        <div class="card-header">
+          <div class="header-icon" style="background: linear-gradient(135deg, #6B8E9F, #5A7D8E);">
+            <el-icon size="24" color="#fff"><Connection /></el-icon>
+          </div>
+          <div class="header-content">
+            <h2 class="card-title">系统代理</h2>
+            <p class="card-desc">配置后所有爬虫（JavDB、JavBus、JavLibrary）都走代理</p>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="form-group">
+            <label class="form-label">启用代理</label>
+            <el-switch v-model="config.enable_system_proxy" size="large" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">代理地址</label>
+            <el-input
+              v-model="config.system_proxy_url"
+              placeholder="socks5://192.168.1.15:7893"
+              size="large"
+              :disabled="!config.enable_system_proxy"
+            >
+              <template #prefix>
+                <el-icon><Link /></el-icon>
+              </template>
+            </el-input>
+          </div>
+
+          <div class="form-actions">
+            <el-button type="primary" size="large" @click="saveConfig">
+              <el-icon><Check /></el-icon>
+              保存代理设置
+            </el-button>
+          </div>
+        </div>
+      </div>
+
+      <!-- JavLibrary 导入配置 -->
+      <div class="settings-card">
+        <div class="card-header">
+          <div class="header-icon" style="background: linear-gradient(135deg, #8FB8CD, #7AA8BD);">
+            <el-icon size="24" color="#fff"><Document /></el-icon>
+          </div>
+          <div class="header-content">
+            <h2 class="card-title">JavLibrary 导入</h2>
+            <p class="card-desc">配置 CSV 文件路径用于 JavLibrary 榜单更新</p>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="form-group">
+            <label class="form-label">CSV 文件路径</label>
+            <el-input
+              v-model="config.javlibrary_csv_path"
+              placeholder="例如：javlibrary_bestrated_2026-04-02T14-40-47.csv 或 data/javlibrary.csv"
+              size="large"
+            >
+              <template #prefix>
+                <el-icon><Document /></el-icon>
+              </template>
+            </el-input>
+            <p class="form-hint">填写 JavLibrary 榜单 CSV 文件路径（相对项目根目录或绝对路径），用于导入 TOP500 榜单数据</p>
+          </div>
+
+          <div class="form-actions">
+            <el-button type="primary" size="large" @click="saveConfig">
+              <el-icon><Check /></el-icon>
+              保存路径
+            </el-button>
+            <el-button size="large" @click="testCsvPath">
+              <el-icon><CircleCheckFilled /></el-icon>
+              测试路径
+            </el-button>
+          </div>
+        </div>
+      </div>
+
       <!-- 榜单管理 -->
       <div class="settings-card">
         <div class="card-header">
@@ -278,6 +359,10 @@
                 <span class="weight-label">多位演员</span>
                 <el-input-number v-model="config.weight_multi_actor" :min="0" :max="20" size="large" />
               </div>
+              <div class="weight-item">
+                <span class="weight-label">演员有 JavBus ID</span>
+                <el-input-number v-model="config.weight_javbus_id" :min="0" :max="30" size="large" />
+              </div>
             </div>
           </div>
 
@@ -285,6 +370,10 @@
             <el-button type="primary" size="large" @click="saveConfig">
               <el-icon><Check /></el-icon>
               保存权重配置
+            </el-button>
+            <el-button size="large" @click="recalculateWeightedScores">
+              <el-icon><Refresh /></el-icon>
+              重新计算加权分
             </el-button>
           </div>
         </div>
@@ -331,6 +420,15 @@
               <el-icon><Refresh /></el-icon>
               刷新统计
             </el-button>
+            <el-button
+              type="primary"
+              size="large"
+              :loading="fetchingAllReleases"
+              @click="fetchAllReleases"
+            >
+              <el-icon><VideoCamera /></el-icon>
+              获取所有关注演员新片
+            </el-button>
           </div>
         </div>
       </div>
@@ -351,18 +449,24 @@ import {
   Setting,
   DataLine,
   Download,
-  Refresh
+  Refresh,
+  Connection,
+  Document,
+  VideoCamera
 } from '@element-plus/icons-vue'
-import { statsApi, configApi, chartManageApi, chartsApi } from '../api'
+import { statsApi, configApi, chartManageApi, chartsApi, tasksApi, actorsApi } from '../api'
 
 const config = ref({
   jellyfin_url: 'http://192.168.50.20:8096/',
   jellyfin_api_key: '',
   javdb_domains: ['javdb.com'],
   javbus_domains: ['javbus.com'],
+  javlibrary_csv_path: '',
   request_min_delay: 3,
   request_max_delay: 6,
   request_timeout: 30,
+  enable_system_proxy: false,
+  system_proxy_url: 'socks5://192.168.1.15:7893',
   weight_base: 50,
   weight_javdb_high: 20,
   weight_javdb_medium: 10,
@@ -371,7 +475,8 @@ const config = ref({
   weight_dual_chart: 30,
   weight_single_chart: 20,
   weight_year_chart: 10,
-  weight_multi_actor: 5
+  weight_multi_actor: 5,
+  weight_javbus_id: 15
 })
 
 const stats = ref({
@@ -388,6 +493,7 @@ const newChartName = ref('')
 const newChartYear = ref(null)
 const newJavdbDomain = ref('')
 const newJavbusDomain = ref('')
+const fetchingAllReleases = ref(false)
 
 const fetchConfig = async () => {
   try {
@@ -496,8 +602,52 @@ const testConnection = async () => {
   ElMessage.info('测试连接功能待实现')
 }
 
+const testCsvPath = async () => {
+  if (!config.value.javlibrary_csv_path) {
+    ElMessage.warning('请先填写 CSV 文件路径')
+    return
+  }
+  try {
+    const result = await configApi.testCsvPath(config.value.javlibrary_csv_path)
+    if (result.valid) {
+      const pathInfo = result.resolved_path ? `(${result.resolved_path})` : ''
+      ElMessage.success(`路径有效 ${pathInfo}，包含 ${result.count} 条记录`)
+    } else {
+      ElMessage.error(result.error || '路径无效')
+    }
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || '测试失败')
+  }
+}
+
 const exportData = () => {
   ElMessage.info('导出功能待实现')
+}
+
+const recalculateWeightedScores = async () => {
+  try {
+    ElMessage.info('正在重新计算加权分...')
+    const result = await tasksApi.recalculateWeightedScores()
+    ElMessage.success(`加权分已更新，共更新 ${result.updated} 部影片`)
+  } catch (e) {
+    ElMessage.error('更新加权分失败')
+  }
+}
+
+const fetchAllReleases = async () => {
+  fetchingAllReleases.value = true
+  try {
+    const result = await actorsApi.fetchAllReleases()
+    if (result.status === 'started') {
+      ElMessage.success('批量获取任务已启动，将在后台为所有关注演员获取新片')
+    } else {
+      ElMessage.info(result.message || '任务已启动')
+    }
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || '启动任务失败')
+  } finally {
+    fetchingAllReleases.value = false
+  }
 }
 
 onMounted(() => {
@@ -593,6 +743,12 @@ onMounted(() => {
   font-weight: 500;
   color: var(--text-secondary);
   margin-bottom: 8px;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 6px;
 }
 
 .form-row {

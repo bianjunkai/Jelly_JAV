@@ -48,7 +48,12 @@
         @click="goToDetail(actor)"
       >
         <div class="actor-avatar">
-          <img v-if="actor.photo_url" :src="actor.photo_url" :alt="actor.name" />
+          <img
+            v-if="actor.photo_url && !imageErrors.has(actor.name)"
+            :src="actor.photo_url"
+            :alt="actor.name"
+            @error="handleImageError(actor.name)"
+          />
           <div v-else class="avatar-placeholder">
             <span class="avatar-initial">{{ actor.name.charAt(0) }}</span>
           </div>
@@ -118,6 +123,7 @@ const actors = ref([])
 const searchKeyword = ref('')
 const filterFollowed = ref('all')
 const sortBy = ref('movie_count_desc')
+const imageErrors = ref(new Set())
 
 const fetchActors = async () => {
   loading.value = true
@@ -146,6 +152,10 @@ const toggleFollow = async (actor) => {
 
 const goToDetail = (actor) => {
   router.push(`/actors/${encodeURIComponent(actor.name)}`)
+}
+
+const handleImageError = (actorName) => {
+  imageErrors.value.add(actorName)
 }
 
 onMounted(() => {

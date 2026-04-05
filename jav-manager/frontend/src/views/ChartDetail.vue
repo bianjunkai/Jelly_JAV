@@ -43,12 +43,7 @@
           <span class="code-text">{{ row.code }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="标题" min-width="200" prop="title" show-overflow-tooltip />
-      <el-table-column label="演员" width="140">
-        <template #default="{ row }">
-          <span class="actors-text">{{ row.actors?.slice(0, 2).join(', ') }}</span>
-        </template>
-      </el-table-column>
+      <el-table-column label="标题" min-width="280" prop="title" show-overflow-tooltip />
       <el-table-column label="评分" width="90" sortable prop="score">
         <template #default="{ row }">
           <span v-if="row.score" class="score-badge" :class="getScoreClass(row.score)">
@@ -137,7 +132,7 @@ const addToTodo = async (row) => {
     await todosApi.add({
       code: row.code,
       title: row.title,
-      actors: row.actors?.join(',') || '',
+      actors: '',
       source: 'manual',
       source_detail: `榜单-${chartName.value}`
     })

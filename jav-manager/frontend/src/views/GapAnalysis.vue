@@ -94,35 +94,6 @@
         </div>
       </div>
 
-      <!-- 关注演员缺失 -->
-      <div v-if="Object.keys(gapData.by_followed_actor || {}).length > 0" class="actor-gaps">
-        <h3 class="section-title">
-          <el-icon><StarFilled /></el-icon>
-          关注演员缺失影片
-        </h3>
-        <div class="actor-cards">
-          <div v-for="(items, actor) in gapData.by_followed_actor" :key="actor" class="actor-card">
-            <div class="actor-header">
-              <div class="actor-avatar">
-                <span class="avatar-text">{{ actor.charAt(0) }}</span>
-              </div>
-              <div class="actor-info">
-                <h4 class="actor-name">{{ actor }}</h4>
-                <span class="actor-count">{{ items.length }} 部缺失</span>
-              </div>
-              <el-button size="small" @click="viewActorGaps(actor)">查看全部</el-button>
-            </div>
-            <div class="actor-movies">
-              <div v-for="item in items.slice(0, 5)" :key="item.code" class="movie-item">
-                <span class="movie-rank">#{{ item.rank }}</span>
-                <span class="movie-code">{{ item.code }}</span>
-                <span v-if="item.score" class="movie-score">★ {{ item.score.toFixed(1) }}</span>
-                <el-button size="small" type="primary" @click="addToTodo(item)">加入待看</el-button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
 
       <!-- 完整缺失列表 -->
       <div class="full-list">
@@ -167,9 +138,9 @@
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="演员" min-width="150">
+          <el-table-column label="标题" min-width="250">
             <template #default="{ row }">
-              {{ row.actors?.slice(0, 2).join(', ') }}
+              <span class="title-text" :title="row.title">{{ row.title || '-' }}</span>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="100">
@@ -248,7 +219,7 @@ const addToTodo = async (item) => {
     await todosApi.add({
       code: item.code,
       title: item.title,
-      actors: item.actors?.join(',') || '',
+      actors: '',
       source: 'manual',
       source_detail: `榜单补全-${chartName.value}`
     })
@@ -263,7 +234,7 @@ const batchAddToTodo = async () => {
     const items = selectedItems.value.map(item => ({
       code: item.code,
       title: item.title,
-      actors: item.actors?.join(',') || '',
+      actors: '',
       source: 'manual',
       source_detail: `榜单补全-${chartName.value}`
     }))
@@ -277,9 +248,9 @@ const batchAddToTodo = async () => {
 }
 
 const exportCSV = () => {
-  const csv = ['Rank,Code,Title,Score,Actors']
+  const csv = ['Rank,Code,Title,Score']
   gapData.value.all_missing?.forEach(item => {
-    csv.push(`${item.rank},${item.code},"${item.title || ''}",${item.score || ''},"${(item.actors || []).join(',')}"`)
+    csv.push(`${item.rank},${item.code},"${item.title || ''}",${item.score || ''}`)
   })
   const blob = new Blob([csv.join('\n')], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
@@ -664,6 +635,16 @@ onMounted(() => {
 .code-text {
   font-weight: 600;
   color: var(--primary-color);
+}
+
+.title-text {
+  font-size: 14px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  max-width: 300px;
 }
 
 /* 响应式 */
