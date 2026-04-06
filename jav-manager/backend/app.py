@@ -253,8 +253,16 @@ def get_actor(name):
     if not actor:
         return jsonify({'error': 'Actor not found'}), 404
 
-    # 获取该演员的影片
-    movies = db.session.query(Movie).filter(Movie.actors.contains(name)).all()
+    # 获取该演员的影片（精确匹配 comma-separated 列表中的演员名）
+    from sqlalchemy import or_
+    movies = db.session.query(Movie).filter(
+        or_(
+            Movie.actors == name,
+            Movie.actors.startswith(f'{name},'),
+            Movie.actors.endswith(f',{name}'),
+            Movie.actors.contains(f',{name},')
+        )
+    ).all()
 
     # 获取榜单出现记录
     chart_appearances = []
@@ -268,14 +276,20 @@ def get_actor(name):
                 'code': item.code
             })
 
-    # 获取缺失影片（榜单中有但本地库没有的）
+    # 获取缺失影片（榜单中有但本地库没有的，精确匹配演员名）
     all_chart_items = db.session.query(ChartItem).filter(
-        ChartItem.actors.contains(name),
+        or_(
+            ChartItem.actors == name,
+            ChartItem.actors.startswith(f'{name},'),
+            ChartItem.actors.endswith(f',{name}'),
+            ChartItem.actors.contains(f',{name},')
+        ),
         ChartItem.movie_id.is_(None)
     ).all()
 
     result = actor.to_dict()
     result['movies'] = [m.to_dict() for m in movies]
+    result['movie_count'] = len(movies)  # 使用过滤后的实际数量
     result['chart_appearances'] = chart_appearances
     result['missing_in_charts'] = [i.to_dict() for i in all_chart_items]
 

@@ -217,13 +217,18 @@ def update_movie_actors(code, people, jellyfin_item=None):
             encoded_name = urllib.parse.quote(actor_name)
             actor.photo_url = f'/api/actor-image/{encoded_name}'
 
-            # 更新统计
-            actor.movie_count = Movie.query.filter(
-                Movie.actors.contains(actor_name)
-            ).count()
+            # 更新统计（使用精确匹配）
+            from sqlalchemy import or_
+            exact_filter = or_(
+                Movie.actors == actor_name,
+                Movie.actors.startswith(f'{actor_name},'),
+                Movie.actors.endswith(f',{actor_name}'),
+                Movie.actors.contains(f',{actor_name},')
+            )
+            actor.movie_count = Movie.query.filter(exact_filter).count()
 
             # 计算平均分
-            movies = Movie.query.filter(Movie.actors.contains(actor_name)).all()
+            movies = Movie.query.filter(exact_filter).all()
             scores = [m.javdb_score for m in movies if m.javdb_score]
             if scores:
                 actor.avg_score = sum(scores) / len(scores)

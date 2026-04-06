@@ -28,165 +28,165 @@
 
     <!-- 主内容区 -->
     <div class="dashboard-content">
-      <!-- 左侧：榜单概览 -->
-      <div class="content-left">
+      <!-- 最近添加 - 横向海报展示（独立区块，全宽） -->
+      <section class="section-recent" v-if="recentMovies.length">
         <div class="section-header">
           <h2 class="section-title">
-            <el-icon><Trophy /></el-icon>
-            榜单概览
+            <el-icon><Picture /></el-icon>
+            最近添加
           </h2>
-          <el-button text @click="$router.push('/charts')">
+          <el-button text @click="$router.push('/library')">
             查看全部
             <el-icon class="btn-icon"><ArrowRight /></el-icon>
           </el-button>
         </div>
-
-        <div class="charts-grid">
+        <div class="recent-scroll">
           <div
-            v-for="chart in charts.slice(0, 4)"
-            :key="chart.name"
-            class="chart-card"
-            @click="$router.push(`/charts/${encodeURIComponent(chart.name)}`)"
+            v-for="movie in recentMovies"
+            :key="movie.code"
+            class="recent-card"
+            @click="showMovieDetail(movie)"
           >
-            <div class="chart-header">
-              <h3 class="chart-name">{{ chart.display_name }}</h3>
-              <span v-if="chart.year" class="chart-year">{{ chart.year }}</span>
+            <div class="recent-poster">
+              <img v-if="movie.poster_url" :src="movie.poster_url" :alt="movie.code" />
+              <div v-else class="poster-placeholder">
+                <el-icon size="28"><Picture /></el-icon>
+              </div>
+              <div v-if="movie.javdb_score" class="score-overlay">
+                <span class="score-star">★</span>
+                <span class="score-value">{{ movie.javdb_score.toFixed(1) }}</span>
+              </div>
             </div>
-
-            <div class="chart-progress">
-              <div class="progress-bar">
-                <div class="progress-fill" :style="{ width: chart.coverage_percent + '%' }"></div>
-              </div>
-              <span class="progress-text">{{ chart.coverage_percent }}%</span>
-            </div>
-
-            <div class="chart-stats">
-              <div class="chart-stat">
-                <span class="stat-num collected">{{ chart.collected }}</span>
-                <span class="stat-desc">已收藏</span>
-              </div>
-              <div class="chart-stat">
-                <span class="stat-num missing">{{ chart.missing }}</span>
-                <span class="stat-desc">缺失</span>
-              </div>
-              <div class="chart-stat">
-                <span class="stat-num">{{ chart.total_count }}</span>
-                <span class="stat-desc">总数</span>
-              </div>
+            <div class="recent-info">
+              <span class="recent-code">{{ movie.code }}</span>
+              <span class="recent-title">{{ movie.title }}</span>
             </div>
           </div>
         </div>
+      </section>
+
+      <!-- 下方三栏：榜单概览 | 最新报告 | 快捷操作 -->
+      <div class="bottom-grid">
+        <!-- 榜单概览 -->
+        <section class="section-block">
+          <div class="section-header">
+            <h2 class="section-title">
+              <el-icon><Trophy /></el-icon>
+              榜单概览
+            </h2>
+            <el-button text @click="$router.push('/charts')">
+              查看全部
+              <el-icon class="btn-icon"><ArrowRight /></el-icon>
+            </el-button>
+          </div>
+          <div class="charts-mini-grid">
+            <div
+              v-for="chart in charts.slice(0, 4)"
+              :key="chart.name"
+              class="chart-mini-card"
+              @click="$router.push(`/charts/${encodeURIComponent(chart.name)}`)"
+            >
+              <div class="chart-mini-header">
+                <span class="chart-mini-name">{{ chart.display_name }}</span>
+                <span v-if="chart.year" class="chart-mini-year">{{ chart.year }}</span>
+              </div>
+              <div class="chart-mini-bar">
+                <div class="bar-fill" :style="{ width: chart.coverage_percent + '%' }"></div>
+              </div>
+              <div class="chart-mini-stats">
+                <span class="stat-collected">{{ chart.collected }} 已收藏</span>
+                <span class="stat-missing">{{ chart.missing }} 缺失</span>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <!-- 最新报告 -->
-        <div class="section-header" style="margin-top: 32px;">
-          <h2 class="section-title">
-            <el-icon><Document /></el-icon>
-            最新报告
-          </h2>
-          <el-button text @click="$router.push('/discover')">
-            查看全部
-            <el-icon class="btn-icon"><ArrowRight /></el-icon>
-          </el-button>
-        </div>
-
-        <div class="reports-grid" v-if="latestReports">
-          <div
-            v-for="report in reportList"
-            :key="report.type"
-            class="report-card"
-            :class="{ empty: !latestReports[report.type] }"
-            @click="goToReport(report.type)"
-          >
-            <div class="report-icon" :style="{ background: report.bgColor }">
-              <el-icon :size="20" :color="report.iconColor">
-                <component :is="report.icon" />
-              </el-icon>
-            </div>
-            <div class="report-content">
-              <h4 class="report-title">{{ report.title }}</h4>
-              <p class="report-desc" v-if="latestReports[report.type]">
-                {{ latestReports[report.type]?.data?.total_count || 0 }} {{ report.unit }}
-              </p>
-              <p class="report-desc empty-tip" v-else>暂无报告</p>
-              <span class="report-date" v-if="latestReports[report.type]">{{ formatDate(latestReports[report.type]?.generated_at) }}</span>
+        <section class="section-block">
+          <div class="section-header">
+            <h2 class="section-title">
+              <el-icon><Document /></el-icon>
+              最新报告
+            </h2>
+            <el-button text @click="$router.push('/discover')">
+              查看全部
+              <el-icon class="btn-icon"><ArrowRight /></el-icon>
+            </el-button>
+          </div>
+          <div class="reports-list">
+            <div
+              v-for="report in reportList"
+              :key="report.type"
+              class="report-row"
+              :class="{ empty: !latestReports?.[report.type] }"
+              @click="goToReport(report.type)"
+            >
+              <div class="report-row-icon" :style="{ background: report.bgColor }">
+                <el-icon :size="18" :color="report.iconColor">
+                  <component :is="report.icon" />
+                </el-icon>
+              </div>
+              <div class="report-row-info">
+                <span class="report-row-title">{{ report.title }}</span>
+                <span class="report-row-meta" v-if="latestReports?.[report.type]">
+                  {{ latestReports[report.type]?.data?.total_count || 0 }}{{ report.unit }}
+                  · {{ formatDate(latestReports[report.type]?.generated_at) }}
+                </span>
+                <span class="report-row-meta empty" v-else>暂无报告</span>
+              </div>
+              <el-icon class="row-arrow"><ArrowRight /></el-icon>
             </div>
           </div>
-        </div>
-      </div>
+        </section>
 
-      <!-- 右侧：快捷操作 -->
-      <div class="content-right">
-        <div class="action-panel">
-          <h3 class="panel-title">快捷操作</h3>
-          <div class="action-list">
-            <button class="action-btn primary" @click="syncJellyfin" :disabled="syncing">
-              <div class="action-icon" style="background: linear-gradient(135deg, #E8A598, #D4958A);">
+        <!-- 快捷操作 -->
+        <section class="section-block">
+          <div class="section-header">
+            <h2 class="section-title">
+              <el-icon><Grid /></el-icon>
+              快捷操作
+            </h2>
+          </div>
+          <div class="quick-actions">
+            <button class="quick-btn primary" @click="syncJellyfin" :disabled="syncing">
+              <div class="quick-icon" style="background: linear-gradient(135deg, #E8A598, #D4958A);">
                 <el-icon :size="20"><Refresh /></el-icon>
               </div>
-              <div class="action-info">
-                <span class="action-name">同步 Jellyfin</span>
-                <span class="action-desc">更新影片库</span>
+              <div class="quick-info">
+                <span class="quick-name">同步 Jellyfin</span>
+                <span class="quick-desc">更新影片库</span>
               </div>
               <el-icon v-if="syncing" class="loading-icon"><Loading /></el-icon>
             </button>
-
-            <button class="action-btn" @click="updateScores" :disabled="updatingScores">
-              <div class="action-icon" style="background: linear-gradient(135deg, #8FB996, #7AA882);">
+            <button class="quick-btn" @click="updateScores" :disabled="updatingScores">
+              <div class="quick-icon" style="background: linear-gradient(135deg, #8FB996, #7AA882);">
                 <el-icon :size="20"><Star /></el-icon>
               </div>
-              <div class="action-info">
-                <span class="action-name">更新评分</span>
-                <span class="action-desc">获取最新数据</span>
+              <div class="quick-info">
+                <span class="quick-name">更新评分</span>
+                <span class="quick-desc">获取最新数据</span>
               </div>
             </button>
-
-            <button class="action-btn" @click="generateWeeklyReport">
-              <div class="action-icon" style="background: linear-gradient(135deg, #D4A574, #C49464);">
+            <button class="quick-btn" @click="generateWeeklyReport">
+              <div class="quick-icon" style="background: linear-gradient(135deg, #D4A574, #C49464);">
                 <el-icon :size="20"><Document /></el-icon>
               </div>
-              <div class="action-info">
-                <span class="action-name">生成周报</span>
-                <span class="action-desc">关注演员动态</span>
+              <div class="quick-info">
+                <span class="quick-name">生成周报</span>
+                <span class="quick-desc">关注演员动态</span>
               </div>
             </button>
-
-            <button class="action-btn" @click="$router.push('/todo')">
-              <div class="action-icon" style="background: linear-gradient(135deg, #8FB8CD, #7AA8BD);">
+            <button class="quick-btn" @click="$router.push('/todo')">
+              <div class="quick-icon" style="background: linear-gradient(135deg, #8FB8CD, #7AA8BD);">
                 <el-icon :size="20"><List /></el-icon>
               </div>
-              <div class="action-info">
-                <span class="action-name">待看清单</span>
-                <span class="action-desc">{{ stats.pending_todos || 0 }} 项待处理</span>
+              <div class="quick-info">
+                <span class="quick-name">待看清单</span>
+                <span class="quick-desc">{{ stats.pending_todos || 0 }} 项待处理</span>
               </div>
             </button>
           </div>
-        </div>
-
-        <!-- 最近添加 -->
-        <div class="recent-panel" v-if="recentMovies.length">
-          <h3 class="panel-title">最近添加</h3>
-          <div class="recent-list">
-            <div
-              v-for="movie in recentMovies"
-              :key="movie.code"
-              class="recent-item"
-              @click="showMovieDetail(movie)"
-            >
-              <div class="recent-poster">
-                <img v-if="movie.poster_url" :src="movie.poster_url" :alt="movie.code" />
-                <el-icon v-else><Picture /></el-icon>
-              </div>
-              <div class="recent-info">
-                <span class="recent-code">{{ movie.code }}</span>
-                <span class="recent-title">{{ movie.title }}</span>
-                <span v-if="movie.javdb_score" class="recent-score">
-                  <el-icon><StarFilled /></el-icon>
-                  {{ movie.javdb_score.toFixed(1) }}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+        </section>
       </div>
     </div>
   </div>
@@ -208,7 +208,8 @@ import {
   Picture,
   StarFilled,
   Loading,
-  TrendCharts
+  TrendCharts,
+  Grid
 } from '@element-plus/icons-vue'
 import { statsApi, reportsApi, chartsApi, tasksApi, moviesApi } from '../api'
 
@@ -327,7 +328,7 @@ const fetchCharts = async () => {
 
 const fetchRecentMovies = async () => {
   try {
-    const data = await moviesApi.list({ page: 1, per_page: 5, sort: 'date_added_desc' })
+    const data = await moviesApi.list({ page: 1, per_page: 12, sort: 'date_added_desc' })
     recentMovies.value = data.items || []
   } catch (e) {
     console.error('Failed to fetch recent movies:', e)
@@ -401,19 +402,19 @@ onMounted(() => {
 
 /* 欢迎区域 */
 .welcome-section {
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 
 .welcome-title {
-  font-size: 32px;
+  font-size: 30px;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.5px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .welcome-subtitle {
-  font-size: 16px;
+  font-size: 15px;
   color: var(--text-muted);
 }
 
@@ -421,86 +422,83 @@ onMounted(() => {
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
+  gap: 16px;
   margin-bottom: 32px;
 }
 
 .stat-card {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 24px;
+  gap: 14px;
+  padding: 20px;
   background: var(--bg-card);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
-  transition: all 0.3s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
   cursor: pointer;
 }
 
 .stat-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-2px);
   box-shadow: var(--shadow-hover);
 }
 
 .stat-icon {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .stat-content {
   flex: 1;
+  min-width: 0;
 }
 
 .stat-value {
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-label {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-tertiary);
   margin-top: 2px;
 }
 
-.stat-trend {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.trend-up {
-  color: var(--accent-green);
-}
-
-.trend-down {
-  color: #E8A598;
-}
-
 /* 主内容区 */
 .dashboard-content {
-  display: grid;
-  grid-template-columns: 1fr 340px;
-  gap: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
 }
 
-/* 区域标题 */
+/* ========== 最近添加 - 横向海报 ========== */
+.section-recent {
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+}
+
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .section-title {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 18px;
+  gap: 8px;
+  font-size: 17px;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -514,213 +512,293 @@ onMounted(() => {
   transition: transform 0.2s ease;
 }
 
-button:hover .btn-icon {
-  transform: translateX(4px);
+.el-button:hover .btn-icon {
+  transform: translateX(3px);
 }
 
-/* 榜单卡片 */
-.charts-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+/* 横向滚动海报 */
+.recent-scroll {
+  display: flex;
   gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
 }
 
-.chart-card {
-  padding: 20px;
-  background: var(--bg-card);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
-  transition: all 0.3s ease;
+.recent-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.recent-scroll::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: 3px;
+}
+
+.recent-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+.recent-card {
+  flex-shrink: 0;
+  width: 130px;
   cursor: pointer;
+  scroll-snap-align: start;
+  transition: transform 0.2s ease;
 }
 
-.chart-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-hover);
+.recent-card:hover {
+  transform: translateY(-3px);
 }
 
-.chart-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.chart-name {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.chart-year {
-  padding: 4px 10px;
-  background: var(--bg-tertiary);
-  border-radius: 20px;
-  font-size: 12px;
-  color: var(--text-tertiary);
-  font-weight: 500;
-}
-
-.chart-progress {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.progress-bar {
-  flex: 1;
-  height: 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
+.recent-poster {
+  position: relative;
+  aspect-ratio: 2/3;
+  border-radius: var(--radius-md);
   overflow: hidden;
+  background: var(--bg-tertiary);
+  margin-bottom: 10px;
 }
 
-.progress-fill {
+.recent-poster img {
+  width: 100%;
   height: 100%;
-  background: var(--primary-gradient);
-  border-radius: 4px;
-  transition: width 0.5s ease;
+  object-fit: cover;
 }
 
-.progress-text {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--primary-color);
-  min-width: 40px;
-  text-align: right;
-}
-
-.chart-stats {
+.poster-placeholder {
+  width: 100%;
+  height: 100%;
   display: flex;
-  gap: 24px;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
 }
 
-.chart-stat {
+.score-overlay {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
 }
 
-.stat-num {
-  font-size: 20px;
+.score-star {
+  font-size: 11px;
+  color: var(--accent-gold);
+}
+
+.score-value {
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-primary);
 }
 
-.stat-num.collected {
-  color: var(--accent-green);
+.recent-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 2px;
 }
 
-.stat-num.missing {
-  color: #E8A598;
+.recent-code {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary-color);
+  font-family: var(--font-mono);
 }
 
-.stat-desc {
+.recent-title {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* 报告卡片 */
-.reports-grid {
+/* ========== 下方三栏布局 ========== */
+.bottom-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  grid-template-columns: 1fr 1fr 280px;
+  gap: 24px;
+  align-items: start;
 }
 
-.report-card {
+.section-block {
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  padding: 22px;
+  box-shadow: var(--shadow-card);
+}
+
+/* 榜单迷你卡片 */
+.charts-mini-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.chart-mini-card {
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chart-mini-card:hover {
+  background: var(--bg-tertiary);
+  transform: translateX(3px);
+}
+
+.chart-mini-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.chart-mini-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chart-mini-year {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.chart-mini-bar {
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.bar-fill {
+  height: 100%;
+  background: var(--primary-gradient);
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+.chart-mini-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.stat-collected {
+  color: var(--accent-green);
+  font-weight: 600;
+}
+
+.stat-missing {
+  color: #E8A598;
+  font-weight: 600;
+}
+
+/* 报告列表 */
+.reports-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.report-row {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 20px;
-  background: var(--bg-card);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
-  transition: all 0.3s ease;
+  gap: 14px;
+  padding: 14px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.report-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-hover);
+.report-row:hover {
+  background: var(--bg-tertiary);
+  transform: translateX(3px);
 }
 
-.report-card.empty {
+.report-row.empty {
   opacity: 0.5;
   cursor: default;
 }
 
-.report-card.empty:hover {
+.report-row.empty:hover {
   transform: none;
-  box-shadow: var(--shadow-card);
+  background: var(--bg-secondary);
 }
 
-.report-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
+.report-row-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 
-.report-content {
+.report-row-info {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
 
-.report-title {
-  font-size: 15px;
+.report-row-title {
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 4px;
 }
 
-.report-desc {
-  font-size: 14px;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-}
-
-.report-date {
+.report-row-meta {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
-.empty-tip {
+.report-row-meta.empty {
   color: var(--text-muted);
   font-style: italic;
 }
 
-/* 右侧面板 */
-.action-panel,
-.recent-panel {
-  background: var(--bg-card);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
-  padding: 24px;
-  margin-bottom: 20px;
+.row-arrow {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
 }
 
-.panel-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 16px;
+.report-row:hover .row-arrow {
+  transform: translateX(3px);
+  color: var(--primary-color);
 }
 
 /* 快捷操作 */
-.action-list {
+.quick-actions {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
-.action-btn {
+.quick-btn {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px;
+  gap: 12px;
+  padding: 12px 14px;
   background: var(--bg-secondary);
   border: none;
   border-radius: var(--radius-md);
@@ -730,25 +808,26 @@ button:hover .btn-icon {
   width: 100%;
 }
 
-.action-btn:hover {
+.quick-btn:hover {
   background: var(--bg-tertiary);
-  transform: translateX(4px);
+  transform: translateX(3px);
 }
 
-.action-btn.primary {
-  background: linear-gradient(135deg, #F5D5CE20, #E8A59820);
+.quick-btn.primary {
+  background: linear-gradient(135deg, #F5D5CE15, #E8A59815);
   border: 1px solid var(--primary-light);
 }
 
-.action-btn:disabled {
+.quick-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  transform: none !important;
 }
 
-.action-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
+.quick-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -756,20 +835,21 @@ button:hover .btn-icon {
   flex-shrink: 0;
 }
 
-.action-info {
+.quick-info {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
-.action-name {
+.quick-name {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.action-desc {
+.quick-desc {
   font-size: 12px;
   color: var(--text-tertiary);
 }
@@ -784,122 +864,18 @@ button:hover .btn-icon {
   to { transform: rotate(360deg); }
 }
 
-/* 最近添加 */
-.recent-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.recent-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.recent-item:hover {
-  background: var(--bg-secondary);
-}
-
-.recent-poster {
-  width: 48px;
-  height: 64px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.recent-poster img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.recent-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.recent-code {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--primary-color);
-}
-
-.recent-title {
-  font-size: 13px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.recent-score {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--accent-gold);
-  font-weight: 600;
-}
-
-.recent-score .el-icon {
-  font-size: 12px;
-}
-
-/* 响应式 */
-@media (max-width: 1200px) {
-  .dashboard-content {
-    grid-template-columns: 1fr;
+/* ========== 响应式 ========== */
+@media (max-width: 1100px) {
+  .bottom-grid {
+    grid-template-columns: 1fr 1fr;
   }
 
-  .content-right {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 20px;
-  }
-
-  .action-panel,
-  .recent-panel {
-    margin-bottom: 0;
+  .section-block:last-child {
+    grid-column: span 2;
   }
 }
 
-@media (max-width: 900px) {
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .charts-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .reports-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .content-right {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 600px) {
-  .welcome-title {
-    font-size: 24px;
-  }
-
+@media (max-width: 768px) {
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 12px;
@@ -915,7 +891,23 @@ button:hover .btn-icon {
   }
 
   .stat-value {
-    font-size: 20px;
+    font-size: 22px;
+  }
+
+  .welcome-title {
+    font-size: 24px;
+  }
+
+  .bottom-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .section-block:last-child {
+    grid-column: span 1;
+  }
+
+  .recent-card {
+    width: 110px;
   }
 }
 </style>

@@ -6,6 +6,7 @@ from sqlalchemy import select
 def generate_weekly_report(app=None, db=None):
     """生成周报：本周关注演员新片（JavBus）"""
     from models import Movie, Actor, Report, ActorRelease
+    from services.javdb_scraper import fetch_movie_details
 
     if app is None:
         from app import app as current_app
@@ -51,13 +52,27 @@ def generate_weekly_report(app=None, db=None):
             movie = session.execute(
                 select(Movie).where(Movie.code == release.code)
             ).scalar_one_or_none()
+
+            # 优先使用本地评分，否则从 JavDB 获取
+            javdb_score = movie.javdb_score if movie else None
+            javdb_id = movie.javdb_id if movie else None
+            if javdb_score is None:
+                # 从 JavDB 获取评分
+                try:
+                    detail = fetch_movie_details(release.code)
+                    if detail:
+                        javdb_score = detail.get('score')
+                        javdb_id = detail.get('javdb_id')
+                except Exception:
+                    pass  # 忽略获取失败的情况
+
             movie_dict = {
                 'code': release.code,
                 'title': release.title or (movie.title if movie else ''),
                 'release_date': release.release_date,
                 'is_released': release.is_released,
-                'javdb_score': movie.javdb_score if movie else None,
-                'javdb_id': movie.javdb_id if movie else None,
+                'javdb_score': javdb_score,
+                'javdb_id': javdb_id,
             }
 
             result_movies.append(movie_dict)

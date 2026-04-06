@@ -14,20 +14,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _get_config():
+    """延迟加载 config 避免循环导入"""
+    from importlib import import_module
+    return import_module('config')
+
+
 class JavDBScraper:
     """JavDB 爬虫"""
-
-    # JavDB 爬虫专用延迟配置（3-45秒随机）
-    JAVDB_MIN_DELAY = 3
-    JAVDB_MAX_DELAY = 45
 
     def __init__(self):
         # 延迟导入，避免循环导入
         from app import config
         self.domains = config.JAVDB_DOMAINS
         self.current_domain = random.choice(self.domains)
-        self.min_delay = self.JAVDB_MIN_DELAY
-        self.max_delay = self.JAVDB_MAX_DELAY
+        # 使用配置中的统一延迟参数
+        self.min_delay = config.REQUEST_MIN_DELAY
+        self.max_delay = config.REQUEST_MAX_DELAY
         self.timeout = config.REQUEST_TIMEOUT
         self.enable_proxy = config.ENABLE_SYSTEM_PROXY
         self.proxy_url = config.SYSTEM_PROXY_URL
