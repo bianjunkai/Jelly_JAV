@@ -195,16 +195,17 @@ class JavDBScraper:
     def _parse_score(self, html: str):
         """解析评分 - 基于 JavDB 5分制评分格式
 
-        HTML样例: <span class="value"><span class="score-stars">...</span>&nbsp;4.29分, 由564人評價</span>
-        返回: 5分制评分如 4.29
+        HTML样例: &nbsp;4.43, by 488 users
+                 &nbsp;4.29分, 由564人評價
+        返回: 5分制评分如 4.43
         """
-        # 模式1: 匹配 JavDB 评分格式 X.XX分 (5分制)
-        match = re.search(r'class="value"[^>]*>.*?&nbsp;(\d+\.\d{1,2})分', html, re.DOTALL)
+        # 模式1: 匹配 &nbsp;4.43, by 格式 (英文版)
+        match = re.search(r'>&nbsp;(\d+\.\d{1,2}),', html)
         if match:
             return float(match.group(1))
 
-        # 模式2: 匹配中文格式 X.X分
-        match = re.search(r'>&nbsp;(\d+\.\d)\s*分', html)
+        # 模式2: 匹配 &nbsp;4.29分, 由564人評價 格式 (中文版)
+        match = re.search(r'>&nbsp;(\d+\.\d{1,2})分', html)
         if match:
             return float(match.group(1))
 
