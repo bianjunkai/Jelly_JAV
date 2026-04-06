@@ -193,48 +193,33 @@ class JavDBScraper:
         }
 
     def _parse_score(self, html: str):
-        """解析评分"""
-        # 模式1: data-score 属性
+        """解析评分 - 基于 JavDB 5分制评分格式
+
+        HTML样例: <span class="value"><span class="score-stars">...</span>&nbsp;4.29分, 由564人評價</span>
+        返回: 5分制评分如 4.29
+        """
+        # 模式1: 匹配 JavDB 评分格式 X.XX分 (5分制)
+        match = re.search(r'class="value"[^>]*>.*?&nbsp;(\d+\.\d{1,2})分', html, re.DOTALL)
+        if match:
+            return float(match.group(1))
+
+        # 模式2: 匹配中文格式 X.X分
+        match = re.search(r'>&nbsp;(\d+\.\d)\s*分', html)
+        if match:
+            return float(match.group(1))
+
+        # 模式3: 匹配 X.X / 5 格式
+        match = re.search(r'(\d+\.\d)\s*/\s*5', html)
+        if match:
+            return float(match.group(1))
+
+        # 模式4: data-score 属性 (10分制，需除以2)
         match = re.search(r'data-score="(\d+\.?\d*)"', html)
         if match:
-            return float(match.group(1))
-
-        # 模式2: 评分类包含数字
-        match = re.search(r'<[^>]*class="[^"]*rating[^"]*"[^>]*>(\d+\.?\d*)', html)
-        if match:
-            return float(match.group(1))
-
-        # 模式3: 查找 5 分制的评分
-        match = re.search(r'(\d+\.?\d*)\s*/\s*5', html)
-        if match:
-            return float(match.group(1))
-
-        # 模式4: 查找包含 "score" 或 "评分" 的元素
-        match = re.search(r'>(\d+\.?\d*)\s*分<', html)
-        if match:
-            return float(match.group(1))
-
-        # 模式5: 查找 movie-rating 类的数据
-        match = re.search(r'class="[^"]*movie-rating[^"]*"[^>]*data-score="(\d+\.?\d*)"', html)
-        if match:
-            score_10 = float(match.group(1))
-            return round(score_10 / 2, 2)
-
-        # 模式6: 查找评分数字在特定的 UD 评分区域
-        match = re.search(r'<span[^>]*class="[^"]*score[^"]*"[^>]*>(\d+\.?\d*)', html)
-        if match:
-            score_10 = float(match.group(1))
-            return round(score_10 / 2, 2)
-
-        # 模式7: 匹配 <span class="value">4.44</span> 格式 (5分制)
-        match = re.search(r'<span[^>]*class="value"[^>]*>.*?<span[^>]*class="score-stars"[^>]*>.*?&nbsp;(\d+\.?\d*),?', html, re.DOTALL)
-        if match:
-            return float(match.group(1))
-
-        # 模式8: 匹配中文格式 4.0分
-        match = re.search(r'>&nbsp;(\d+\.?\d*)\s*分', html)
-        if match:
-            return float(match.group(1))
+            score = float(match.group(1))
+            if score > 10:  # 如果是10分制
+                return round(score / 2, 2)
+            return score
 
         return None
 
