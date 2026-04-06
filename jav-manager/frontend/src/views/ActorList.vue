@@ -71,7 +71,7 @@
             </span>
             <span v-if="actor.avg_score" class="stat score">
               <el-icon><Star /></el-icon>
-              {{ actor.avg_score.toFixed(1) }}
+              {{ actor.avg_score.toFixed(2) }}
             </span>
           </div>
         </div>

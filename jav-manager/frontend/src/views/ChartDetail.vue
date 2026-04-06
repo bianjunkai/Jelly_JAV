@@ -47,7 +47,7 @@
       <el-table-column label="评分" width="90" sortable prop="score">
         <template #default="{ row }">
           <span v-if="row.score" class="score-badge" :class="getScoreClass(row.score)">
-            ★ {{ row.score.toFixed(1) }}
+            ★ {{ row.score.toFixed(2) }}
           </span>
           <span v-else class="no-score">-</span>
         </template>

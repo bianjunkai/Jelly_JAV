@@ -188,6 +188,32 @@
             </div>
           </div>
 
+          <!-- JavDB Cookie -->
+          <div class="config-card">
+            <h3 class="card-section-title">JavDB Cookie</h3>
+            <div class="cookie-config">
+              <el-input
+                v-model="config.javdb_cookie"
+                type="textarea"
+                :rows="3"
+                placeholder='粘贴 JavDB Cookie JSON，格式如: {"cookie": "_jdb_session=xxx; locale=zh; over18=1"}'
+                size="large"
+                class="cookie-input"
+              />
+            </div>
+            <p class="form-hint">登录 JavDB 后从浏览器开发者工具复制 Cookie，一旦过期可粘贴新的继续使用</p>
+            <div class="cookie-actions">
+              <el-button type="primary" size="large" @click="saveCookie" :loading="savingCookie">
+                <el-icon><Check /></el-icon>
+                保存 Cookie
+              </el-button>
+              <el-button size="large" @click="testCookie" :loading="testingCookie">
+                <el-icon><CircleCheckFilled /></el-icon>
+                测试 Cookie
+              </el-button>
+            </div>
+          </div>
+
           <!-- 请求策略 -->
           <div class="config-card">
             <h3 class="card-section-title">请求策略</h3>
@@ -389,8 +415,8 @@
                   <el-input-number v-model="config.weight_multi_actor" :min="0" :max="20" size="small" />
                 </div>
                 <div class="other-item">
-                  <span class="other-label">演员有 JavBus ID</span>
-                  <el-input-number v-model="config.weight_javbus_id" :min="0" :max="30" size="small" />
+                  <span class="other-label">关注演员</span>
+                  <el-input-number v-model="config.weight_followed_actor" :min="0" :max="30" size="small" />
                 </div>
               </div>
             </div>
@@ -464,7 +490,7 @@
               <div class="stat-mini">
                 <el-icon size="20" color="var(--accent-gold)"><Star /></el-icon>
                 <div class="stat-mini-info">
-                  <span class="stat-mini-value">{{ stats.avg_score?.toFixed(1) || '-' }}</span>
+                  <span class="stat-mini-value">{{ stats.avg_score?.toFixed(2) || '-' }}</span>
                   <span class="stat-mini-label">平均评分</span>
                 </div>
               </div>
@@ -605,6 +631,8 @@ const activeSection = ref('connection')
 const syncing = ref(false)
 const recalculating = ref(false)
 const fetchingAllReleases = ref(false)
+const savingCookie = ref(false)
+const testingCookie = ref(false)
 
 const delayRange = ref([3, 6])
 
@@ -627,6 +655,7 @@ const config = ref({
   request_timeout: 30,
   enable_system_proxy: false,
   system_proxy_url: '',
+  javdb_cookie: '',
   weight_base: 50,
   weight_javdb_high: 20,
   weight_javdb_medium: 10,
@@ -636,7 +665,7 @@ const config = ref({
   weight_single_chart: 20,
   weight_year_chart: 10,
   weight_multi_actor: 5,
-  weight_javbus_id: 15
+  weight_followed_actor: 10
 })
 
 const stats = ref({ total_movies: 0, total_actors: 0, followed_actors: 0, avg_score: 0, pending_todos: 0 })
@@ -793,10 +822,31 @@ const recalculateWeightedScores = async () => {
   recalculating.value = true
   try {
     const result = await tasksApi.recalculateWeightedScores()
-    ElMessage.success(`加权分已更新，共更新 ${result.updated} 部影片`)
+    if (result.status === 'started') {
+      ElMessage.info('加权分计算已开始，请稍后查看进度')
+
+      // 轮询任务状态
+      const checkStatus = async () => {
+        const status = await tasksApi.status()
+        const runningTask = status.running?.find(t => t.task_type === 'weighted_score_recalc')
+        if (runningTask) {
+          // 任务还在运行，5秒后再检查
+          setTimeout(checkStatus, 5000)
+        } else {
+          // 任务完成
+          recalculating.value = false
+          const completedTask = status.recent_completed?.find(t => t.task_type === 'weighted_score_recalc')
+          if (completedTask) {
+            ElMessage.success(`加权分计算完成: ${completedTask.message}`)
+          }
+        }
+      }
+
+      // 延迟一下再开始轮询
+      setTimeout(checkStatus, 2000)
+    }
   } catch (e) {
     ElMessage.error('更新加权分失败')
-  } finally {
     recalculating.value = false
   }
 }
@@ -812,6 +862,32 @@ const fetchAllReleases = async () => {
     ElMessage.error(e.response?.data?.error || '启动任务失败')
   } finally {
     fetchingAllReleases.value = false
+  }
+}
+
+const saveCookie = async () => {
+  savingCookie.value = true
+  try {
+    await configApi.updateJavdbCookie(config.value.javdb_cookie)
+    ElMessage.success('JavDB Cookie 已保存')
+  } catch (e) {
+    ElMessage.error('保存 Cookie 失败')
+  } finally {
+    savingCookie.value = false
+  }
+}
+
+const testCookie = async () => {
+  testingCookie.value = true
+  try {
+    // 先保存 cookie
+    await configApi.updateJavdbCookie(config.value.javdb_cookie)
+    // 测试需要后端支持，这里简单提示
+    ElMessage.success('Cookie 已保存，可尝试抓取一部影片测试')
+  } catch (e) {
+    ElMessage.error('测试失败')
+  } finally {
+    testingCookie.value = false
   }
 }
 
@@ -1514,6 +1590,21 @@ onMounted(() => {
 
 .csv-config .el-input {
   flex: 1;
+}
+
+/* Cookie 配置 */
+.cookie-config {
+  margin-bottom: 12px;
+}
+
+.cookie-input {
+  font-family: monospace;
+}
+
+.cookie-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
 }
 
 /* 榜单列表 */

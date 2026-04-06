@@ -47,7 +47,7 @@
             <span class="score-label">JavDB</span>
             <div v-if="displayMovie.javdb_score" class="score-display">
               <el-icon class="score-star"><StarFilled /></el-icon>
-              <span class="score-value">{{ displayMovie.javdb_score.toFixed(1) }}</span>
+              <span class="score-value">{{ displayMovie.javdb_score.toFixed(2) }}</span>
               <span class="score-max">/5</span>
             </div>
             <span v-else class="score-empty">暂无评分</span>

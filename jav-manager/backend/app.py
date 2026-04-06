@@ -69,6 +69,7 @@ def save_config_to_file():
         'REQUEST_TIMEOUT': config.REQUEST_TIMEOUT,
         'ENABLE_SYSTEM_PROXY': config.ENABLE_SYSTEM_PROXY,
         'SYSTEM_PROXY_URL': config.SYSTEM_PROXY_URL,
+        'JAVDB_COOKIE': getattr(config, 'JAVDB_COOKIE', ''),
         'WEIGHT_BASE': config.WEIGHT_BASE,
         'WEIGHT_JAVDB_HIGH': config.WEIGHT_JAVDB_HIGH,
         'WEIGHT_JAVDB_MEDIUM': config.WEIGHT_JAVDB_MEDIUM,
@@ -78,6 +79,7 @@ def save_config_to_file():
         'WEIGHT_SINGLE_CHART': config.WEIGHT_SINGLE_CHART,
         'WEIGHT_YEAR_CHART': config.WEIGHT_YEAR_CHART,
         'WEIGHT_MULTI_ACTOR': config.WEIGHT_MULTI_ACTOR,
+        'WEIGHT_FOLLOWED_ACTOR': config.WEIGHT_FOLLOWED_ACTOR,
     }
     try:
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -869,21 +871,15 @@ def update_scores():
 
 @app.route('/api/tasks/weighted-scores', methods=['POST'])
 def recalculate_weighted_scores():
-    """重新计算所有影片的加权分"""
-    from services.score_updater import calculate_weighted_score
+    """重新计算所有影片的加权分（异步）"""
+    from services.score_updater import recalculate_all_weighted_scores
 
-    movies = db.session.query(Movie).filter(Movie.code.isnot(None)).all()
-    updated = 0
-    for movie in movies:
-        old_score = movie.weighted_score
-        new_score = calculate_weighted_score(movie)
-        if old_score != new_score:
-            movie.weighted_score = new_score
-            updated += 1
+    import threading
+    thread = threading.Thread(target=recalculate_all_weighted_scores)
+    thread.daemon = True
+    thread.start()
 
-    db.session.commit()
-
-    return jsonify({'status': 'completed', 'updated': updated, 'total': len(movies)})
+    return jsonify({'status': 'started', 'message': '加权分计算已开始'})
 
 
 @app.route('/api/stats', methods=['GET'])
@@ -924,6 +920,7 @@ def get_config():
         'request_timeout': config.REQUEST_TIMEOUT,
         'enable_system_proxy': config.ENABLE_SYSTEM_PROXY,
         'system_proxy_url': config.SYSTEM_PROXY_URL,
+        'javdb_cookie': getattr(config, 'JAVDB_COOKIE', ''),
         'weight_base': config.WEIGHT_BASE,
         'weight_javdb_high': config.WEIGHT_JAVDB_HIGH,
         'weight_javdb_medium': config.WEIGHT_JAVDB_MEDIUM,
@@ -932,7 +929,8 @@ def get_config():
         'weight_dual_chart': config.WEIGHT_DUAL_CHART,
         'weight_single_chart': config.WEIGHT_SINGLE_CHART,
         'weight_year_chart': config.WEIGHT_YEAR_CHART,
-        'weight_multi_actor': config.WEIGHT_MULTI_ACTOR
+        'weight_multi_actor': config.WEIGHT_MULTI_ACTOR,
+        'weight_followed_actor': config.WEIGHT_FOLLOWED_ACTOR
     })
 
 
@@ -988,6 +986,11 @@ def update_config():
         config.WEIGHT_YEAR_CHART = data['weight_year_chart']
     if 'weight_multi_actor' in data:
         config.WEIGHT_MULTI_ACTOR = data['weight_multi_actor']
+    if 'weight_followed_actor' in data:
+        config.WEIGHT_FOLLOWED_ACTOR = data['weight_followed_actor']
+    if 'javdb_cookie' in data:
+        config.JAVDB_COOKIE = data['javdb_cookie']
+        logger.info(f"Updated JAVDB_COOKIE: {('***' + str(data['javdb_cookie'])[-10:]) if data['javdb_cookie'] else 'cleared'}")
 
     # 持久化到文件
     save_config_to_file()
@@ -1032,6 +1035,30 @@ def test_csv_path():
 
     except Exception as e:
         return jsonify({'valid': False, 'error': str(e)}), 400
+
+
+@app.route('/api/config/javdb-cookie', methods=['PUT'])
+def update_javdb_cookie():
+    """更新 JavDB Cookie（专门接口，方便快速更新）"""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    data = request.json
+    cookie_data = data.get('cookie', '')
+
+    logger.info(f"PUT /api/config/javdb-cookie received, length: {len(cookie_data)}")
+
+    # 如果是 JSON 字符串则解析后存储，否则直接存储
+    if isinstance(cookie_data, str):
+        try:
+            cookie_data = json.loads(cookie_data)
+        except json.JSONDecodeError:
+            pass  # 不是 JSON 字符串，直接存储
+
+    config.JAVDB_COOKIE = cookie_data
+    save_config_to_file()
+
+    return jsonify({'success': True, 'message': 'JavDB Cookie 已更新'})
 
 
 @app.route('/api/config/charts', methods=['GET'])

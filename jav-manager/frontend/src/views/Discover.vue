@@ -36,7 +36,7 @@
             <div class="report-preview" v-if="latestReports.weekly.data?.movies?.length">
               <div v-for="movie in latestReports.weekly.data.movies.slice(0, 3)" :key="movie.code" class="preview-item">
                 <span class="preview-code">{{ movie.code }}</span>
-                <span v-if="movie.javdb_score" class="preview-score">★ {{ movie.javdb_score.toFixed(1) }}</span>
+                <span v-if="movie.javdb_score" class="preview-score">★ {{ movie.javdb_score.toFixed(2) }}</span>
               </div>
             </div>
             <button class="report-btn">查看详情</button>

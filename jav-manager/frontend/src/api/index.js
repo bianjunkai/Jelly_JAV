@@ -81,7 +81,8 @@ export const configApi = {
   get: () => api.get('/config'),
   update: (data) => api.put('/config', data),
   getCharts: () => api.get('/config/charts'),
-  testCsvPath: (path) => api.post('/config/test-csv', { path })
+  testCsvPath: (path) => api.post('/config/test-csv', { path }),
+  updateJavdbCookie: (cookie) => api.put('/config/javdb-cookie', { cookie })
 }
 
 // 榜单管理 API

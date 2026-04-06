@@ -106,8 +106,12 @@ def generate_weekly_report(app=None, db=None):
 
 
 def generate_monthly_report(app=None, db=None):
-    """生成月报：本月分数上升旧片"""
-    from models import Movie, Actor, Report, ScoreHistory
+    """生成月报：
+    1. 上月关注演员新片汇总
+    2. 上月分数显著上升的旧片（关注演员参演）
+    """
+    from models import Movie, Actor, Report, ScoreHistory, ActorRelease
+    from services.javdb_scraper import fetch_movie_details
 
     if app is None:
         from app import app as current_app
@@ -136,9 +140,54 @@ def generate_monthly_report(app=None, db=None):
         followed_actors = session.execute(
             select(Actor).where(Actor.is_followed == True)
         ).scalars().all()
+        followed_actor_ids = {a.id for a in followed_actors}
         followed_actor_names = {a.name for a in followed_actors}
 
-        # 分数上升记录
+        if not followed_actors:
+            return {'type': 'monthly', 'total_count': 0, 'new_releases': [], 'score_changes': []}
+
+        # ===== Part 1: 上月关注演员新片 =====
+        releases = session.execute(
+            select(ActorRelease).where(
+                ActorRelease.actor_id.in_(followed_actor_ids),
+                ActorRelease.release_date >= last_month_start.strftime('%m/%d/%Y'),
+                ActorRelease.release_date <= last_month_end.strftime('%m/%d/%Y')
+            )
+        ).scalars().all()
+
+        new_releases = []
+        score_changes_by_actor = {}  # 按演员分组的涨分
+        all_items_by_actor = {}  # 所有项目按演员分组
+
+        for release in releases:
+            movie = session.execute(
+                select(Movie).where(Movie.code == release.code)
+            ).scalar_one_or_none()
+
+            javdb_score = movie.javdb_score if movie else None
+            javdb_id = movie.javdb_id if movie else None
+
+            actor_name = release.actor.name if release.actor else 'Unknown'
+
+            movie_dict = {
+                'code': release.code,
+                'title': release.title or (movie.title if movie else ''),
+                'release_date': release.release_date,
+                'is_released': release.is_released,
+                'javdb_score': javdb_score,
+                'javdb_id': javdb_id,
+                'category': 'new_release',
+            }
+
+            new_releases.append(movie_dict)
+
+            if actor_name not in all_items_by_actor:
+                all_items_by_actor[actor_name] = []
+            all_items_by_actor[actor_name].append(movie_dict)
+
+        new_releases.sort(key=lambda x: x.get('release_date', ''), reverse=True)
+
+        # ===== Part 2: 上月分数上升的旧片（关注演员参演）=====
         score_changes = session.execute(
             select(ScoreHistory).where(
                 ScoreHistory.changed_at >= datetime.combine(last_month_start, datetime.min.time()),
@@ -148,30 +197,49 @@ def generate_monthly_report(app=None, db=None):
             )
         ).scalars().all()
 
-        # 筛选关注演员的影片
-        result = []
+        score_change_items = []
         for change in score_changes:
             movie = change.movie
             actors = movie.actors.split(',') if movie.actors else []
-            if any(a in followed_actor_names for a in actors):
-                result.append({
+            # 找到第一个匹配的关注演员
+            matched_actor = None
+            for a in actors:
+                if a in followed_actor_names:
+                    matched_actor = a
+                    break
+            if matched_actor:
+                item_dict = {
                     'movie': movie.to_dict(),
                     'prev_score': change.prev_score,
                     'curr_score': change.curr_score,
-                    'change': round(change.curr_score - change.prev_score, 1)
-                })
+                    'change': round(change.curr_score - change.prev_score, 1),
+                    'category': 'score_change',
+                    'code': movie.code,
+                    'release_date': None,
+                    'javdb_score': change.curr_score,
+                    'javdb_id': movie.javdb_id,
+                    'is_released': True,
+                }
+                score_change_items.append(item_dict)
+
+                if matched_actor not in all_items_by_actor:
+                    all_items_by_actor[matched_actor] = []
+                all_items_by_actor[matched_actor].append(item_dict)
 
         # 保存报告
         report_data = {
             'type': 'monthly',
             'period': f'{last_month_start} ~ {last_month_end}',
-            'total_count': len(result),
-            'items': result
+            'total_new_releases': len(new_releases),
+            'total_score_changes': len(score_change_items),
+            'by_actor': all_items_by_actor,
+            'new_releases': new_releases,
+            'score_changes': score_change_items
         }
 
         report = Report(
             type='monthly',
-            title=f'本月分数上升 ({len(result)}部)',
+            title=f'上月关注演员新片 ({len(new_releases)}部) + 涨分 ({len(score_change_items)}部)',
             data=json.dumps(report_data)
         )
         session.add(report)

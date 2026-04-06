@@ -95,7 +95,7 @@
           <!-- 评分浮层 -->
           <div v-if="movie.javdb_score" class="score-overlay">
             <span class="score-star">★</span>
-            <span class="score-value">{{ movie.javdb_score.toFixed(1) }}</span>
+            <span class="score-value">{{ movie.javdb_score.toFixed(2) }}</span>
           </div>
 
           <!-- 榜单标签 -->
@@ -144,7 +144,7 @@
         <el-table-column label="JavDB" width="90" sortable>
           <template #default="{ row }">
             <span v-if="row.javdb_score" class="score-badge" :class="getScoreClass(row.javdb_score)">
-              ★ {{ row.javdb_score.toFixed(1) }}
+              ★ {{ row.javdb_score.toFixed(2) }}
             </span>
             <span v-else class="list-no-score">-</span>
           </template>

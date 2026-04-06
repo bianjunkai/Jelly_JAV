@@ -34,7 +34,7 @@
             <span class="stat-label">影片数</span>
           </div>
           <div class="stat-box">
-            <span class="stat-num">{{ actor.avg_score?.toFixed(1) || '-' }}</span>
+            <span class="stat-num">{{ actor.avg_score?.toFixed(2) || '-' }}</span>
             <span class="stat-label">平均评分</span>
           </div>
         </div>
@@ -90,7 +90,7 @@
               </div>
               <div v-if="movie.javdb_score" class="score-overlay">
                 <span class="score-star">★</span>
-                <span class="score-value">{{ movie.javdb_score.toFixed(1) }}</span>
+                <span class="score-value">{{ movie.javdb_score.toFixed(2) }}</span>
               </div>
             </div>
             <div class="movie-info">
@@ -119,7 +119,7 @@
               >
                 <span class="item-rank">#{{ item.rank }}</span>
                 <span class="item-code">{{ item.code }}</span>
-                <span v-if="item.score" class="item-score">★ {{ item.score.toFixed(1) }}</span>
+                <span v-if="item.score" class="item-score">★ {{ item.score.toFixed(2) }}</span>
               </div>
             </div>
           </div>
@@ -137,7 +137,7 @@
             <span class="missing-rank">#{{ item.rank }}</span>
             <span class="missing-code">{{ item.code }}</span>
             <span v-if="item.score" class="score-badge" :class="getScoreClass(item.score)">
-              ★ {{ item.score.toFixed(1) }}
+              ★ {{ item.score.toFixed(2) }}
             </span>
             <el-button size="small" type="primary" @click="addToTodo(item)">
               <el-icon><Plus /></el-icon>
@@ -439,15 +439,16 @@ onMounted(() => {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 8px 16px;
+  gap: 6px;
+  padding: 8px 20px;
   background: var(--primary-gradient);
   border: none;
   border-radius: 20px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #fff;
   cursor: pointer;
+  white-space: nowrap;
   box-shadow: 0 4px 12px rgba(232, 165, 152, 0.4);
 }
 

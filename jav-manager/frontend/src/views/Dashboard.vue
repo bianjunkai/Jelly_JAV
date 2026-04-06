@@ -54,7 +54,7 @@
               </div>
               <div v-if="movie.javdb_score" class="score-overlay">
                 <span class="score-star">★</span>
-                <span class="score-value">{{ movie.javdb_score.toFixed(1) }}</span>
+                <span class="score-value">{{ movie.javdb_score.toFixed(2) }}</span>
               </div>
             </div>
             <div class="recent-info">
