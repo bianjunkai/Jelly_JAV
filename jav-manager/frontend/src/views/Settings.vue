@@ -122,14 +122,14 @@
             <div class="form-group flex-1">
               <label class="form-label">请求延迟 (秒)</label>
               <div class="range-input">
-                <el-input-number v-model="config.request_min_delay" :min="1" :max="10" size="large" />
+                <el-input-number v-model="config.request_min_delay" :min="1" :max="10" />
                 <span class="range-separator">-</span>
-                <el-input-number v-model="config.request_max_delay" :min="1" :max="30" size="large" />
+                <el-input-number v-model="config.request_max_delay" :min="1" :max="30" />
               </div>
             </div>
             <div class="form-group flex-1">
               <label class="form-label">超时时间 (秒)</label>
-              <el-input-number v-model="config.request_timeout" :min="10" :max="120" size="large" />
+              <el-input-number v-model="config.request_timeout" :min="10" :max="120" />
             </div>
           </div>
 
@@ -759,6 +759,7 @@ onMounted(() => {
 
 .flex-1 {
   flex: 1;
+  min-width: 0;
 }
 
 .form-actions {

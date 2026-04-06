@@ -2,30 +2,30 @@
   <el-dialog
     :model-value="modelValue"
     @update:model-value="$emit('update:modelValue', $event)"
-    :title="movie ? `${movie.code} - ${movie.title}` : '影片详情'"
+    :title="displayMovie ? `${displayMovie.code} - ${displayMovie.title}` : '影片详情'"
     width="720px"
     class="movie-detail-dialog"
     :close-on-click-modal="true"
     destroy-on-close
   >
-    <div v-if="movie" class="movie-detail">
+    <div v-if="displayMovie || fetching" class="movie-detail" v-loading="fetching">
       <!-- 海报区 -->
       <div class="detail-poster">
         <div class="poster-wrapper">
-          <img v-if="movie.poster_url" :src="movie.poster_url" :alt="movie.code" @error="handleImgError" />
+          <img v-if="displayMovie.poster_url" :src="displayMovie.poster_url" :alt="displayMovie.code" @error="handleImgError" />
           <div v-else class="poster-placeholder">
             <el-icon size="48"><Picture /></el-icon>
-            <span>{{ movie.code }}</span>
+            <span>{{ displayMovie.code }}</span>
           </div>
         </div>
 
         <!-- 快捷操作 -->
         <div class="poster-actions">
-          <button class="poster-btn primary" @click="openInJellyfin" v-if="movie.jellyfin_id">
+          <button class="poster-btn primary" @click="openInJellyfin" v-if="displayMovie.jellyfin_id">
             <el-icon><VideoPlay /></el-icon>
             播放
           </button>
-          <button class="poster-btn" @click="$emit('add-to-todo', movie)">
+          <button class="poster-btn" @click="$emit('add-to-todo', displayMovie)">
             <el-icon><Plus /></el-icon>
             待看
           </button>
@@ -36,8 +36,8 @@
       <div class="detail-content">
         <!-- 标题区 -->
         <div class="content-header">
-          <div v-if="movie.badges?.length" class="movie-badges">
-            <span v-for="badge in movie.badges" :key="badge" class="detail-badge">{{ badge }}</span>
+          <div v-if="displayMovie.badges?.length" class="movie-badges">
+            <span v-for="badge in displayMovie.badges" :key="badge" class="detail-badge">{{ badge }}</span>
           </div>
         </div>
 
@@ -45,9 +45,9 @@
         <div class="scores-card">
           <div class="score-box">
             <span class="score-label">JavDB</span>
-            <div v-if="movie.javdb_score" class="score-display">
+            <div v-if="displayMovie.javdb_score" class="score-display">
               <el-icon class="score-star"><StarFilled /></el-icon>
-              <span class="score-value">{{ movie.javdb_score.toFixed(1) }}</span>
+              <span class="score-value">{{ displayMovie.javdb_score.toFixed(1) }}</span>
               <span class="score-max">/5</span>
             </div>
             <span v-else class="score-empty">暂无评分</span>
@@ -55,40 +55,40 @@
           <div class="score-divider"></div>
           <div class="score-box">
             <span class="score-label">加权分</span>
-            <span class="score-value weighted">{{ movie.weighted_score || '-' }}</span>
+            <span class="score-value weighted">{{ displayMovie.weighted_score || '-' }}</span>
           </div>
         </div>
 
         <!-- 元信息 -->
         <div class="meta-grid">
-          <div v-if="movie.year" class="meta-item">
+          <div v-if="displayMovie.year" class="meta-item">
             <el-icon><Calendar /></el-icon>
             <div class="meta-content">
               <span class="meta-label">年份</span>
-              <span class="meta-value">{{ movie.year }}</span>
+              <span class="meta-value">{{ displayMovie.year }}</span>
             </div>
           </div>
-          <div v-if="movie.date_added" class="meta-item">
+          <div v-if="displayMovie.date_added" class="meta-item">
             <el-icon><Clock /></el-icon>
             <div class="meta-content">
               <span class="meta-label">添加时间</span>
-              <span class="meta-value">{{ formatDate(movie.date_added) }}</span>
+              <span class="meta-value">{{ formatDate(displayMovie.date_added) }}</span>
             </div>
           </div>
-          <div v-if="movie.actors?.length" class="meta-item full-width">
+          <div v-if="displayMovie.actors?.length" class="meta-item full-width">
             <el-icon><User /></el-icon>
             <div class="meta-content">
               <span class="meta-label">演员</span>
               <div class="actors-inline">
                 <div
-                  v-for="actor in movie.actors"
+                  v-for="actor in displayMovie.actors"
                   :key="actor"
                   class="actor-item"
                   @click="goToActor(actor)"
                 >
                   <img
-                    v-if="movie.actor_images && movie.actor_images[actor]"
-                    :src="movie.actor_images[actor]"
+                    v-if="displayMovie.actor_images && displayMovie.actor_images[actor]"
+                    :src="displayMovie.actor_images[actor]"
                     :alt="actor"
                     class="actor-avatar"
                     @error="handleActorImgError($event, actor)"
@@ -101,22 +101,30 @@
               </div>
             </div>
           </div>
-          <div v-if="movie.jellyfin_path" class="meta-item full-width">
+          <div v-if="displayMovie.jellyfin_path" class="meta-item full-width">
             <el-icon><Folder /></el-icon>
             <div class="meta-content">
               <span class="meta-label">文件路径</span>
-              <span class="meta-value path">{{ movie.jellyfin_path }}</span>
+              <span class="meta-value path">{{ displayMovie.jellyfin_path }}</span>
             </div>
           </div>
         </div>
 
         <!-- 操作按钮 -->
         <div class="detail-actions">
-          <el-button @click="$emit('refresh', movie.code)" :loading="refreshing">
+          <el-button size="small" @click="$emit('refresh', displayMovie.code || code)" :loading="refreshing">
             <el-icon><Refresh /></el-icon>
-            刷新评分
+            刷新
           </el-button>
-          <el-button @click="$emit('update:modelValue', false)">关闭</el-button>
+          <el-button size="small" @click="openJavBus">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            JavBus
+          </el-button>
+          <el-button size="small" @click="openJavDb">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            JavDB
+          </el-button>
+          <el-button size="small" @click="$emit('update:modelValue', false)">关闭</el-button>
         </div>
       </div>
     </div>
@@ -124,7 +132,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Picture,
@@ -137,16 +145,37 @@ import {
   User,
   Refresh
 } from '@element-plus/icons-vue'
+import { moviesApi } from '../api'
+import { getJavBusUrl, getJavDbUrl } from '../utils/movieUrl'
 
 const props = defineProps({
   modelValue: Boolean,
-  movie: Object
+  movie: Object,
+  code: String
 })
 
-defineEmits(['update:modelValue', 'refresh', 'add-to-todo'])
+const emit = defineEmits(['update:modelValue', 'refresh', 'add-to-todo'])
 
 const router = useRouter()
 const refreshing = ref(false)
+const fetching = ref(false)
+const localMovie = ref(null)
+
+const displayMovie = computed(() => props.movie || localMovie.value)
+
+// 当只传 code 时自动获取影片数据（仅在弹窗打开时）
+watch(() => props.modelValue, async (isOpen) => {
+  if (isOpen && props.code && !props.movie) {
+    fetching.value = true
+    try {
+      localMovie.value = await moviesApi.get(props.code)
+    } catch {
+      localMovie.value = null
+    } finally {
+      fetching.value = false
+    }
+  }
+})
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
@@ -167,13 +196,27 @@ const handleActorImgError = (e, actorName) => {
 }
 
 const goToActor = (actor) => {
+  emit('update:modelValue', false)
   router.push(`/actors/${encodeURIComponent(actor)}`)
 }
 
 const openInJellyfin = () => {
-  if (props.movie?.jellyfin_id) {
-    window.open(`/jellyfin/web/#/details?id=${props.movie.jellyfin_id}`, '_blank')
+  if (displayMovie.value?.jellyfin_id) {
+    window.open(`/jellyfin/web/#/details?id=${displayMovie.value.jellyfin_id}`, '_blank')
   }
+}
+
+const openJavBus = () => {
+  const code = displayMovie.value?.code || props.code
+  if (code) {
+    window.open(getJavBusUrl(code), '_blank')
+  }
+}
+
+const openJavDb = () => {
+  const code = displayMovie.value?.code || props.code
+  const javdbId = displayMovie.value?.javdb_id
+  window.open(getJavDbUrl(code, javdbId), '_blank')
 }
 </script>
 
@@ -453,7 +496,8 @@ const openInJellyfin = () => {
 /* 操作按钮 */
 .detail-actions {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: auto;
   padding-top: 20px;
 }

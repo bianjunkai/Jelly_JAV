@@ -34,15 +34,12 @@ def generate_weekly_report(app=None, db=None):
         if not followed_actors:
             return {'type': 'weekly', 'total_count': 0, 'movies': []}
 
-        # 从 actor_releases 获取本周发现的新片
-        week_start = datetime.combine(last_monday, datetime.min.time())
-        week_end = datetime.combine(last_sunday, datetime.max.time())
-
+        # 从 actor_releases 获取本周发布的新片（按 release_date 筛选）
         releases = session.execute(
             select(ActorRelease).where(
                 ActorRelease.actor_id.in_(followed_actor_ids),
-                ActorRelease.detected_at >= week_start,
-                ActorRelease.detected_at <= week_end
+                ActorRelease.release_date >= last_monday.strftime('%m/%d/%Y'),
+                ActorRelease.release_date <= last_sunday.strftime('%m/%d/%Y')
             )
         ).scalars().all()
 

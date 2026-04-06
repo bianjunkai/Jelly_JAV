@@ -59,11 +59,14 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="100">
+      <el-table-column label="操作" width="120">
         <template #default="{ row }">
-          <el-button v-if="!row.in_library" size="small" type="primary" @click.stop="addToTodo(row)">
+          <button class="table-action-btn primary" v-if="!row.in_library" @click.stop="addToTodo(row)" title="添加到待看">
             <el-icon><Plus /></el-icon>
-          </el-button>
+          </button>
+          <button class="table-action-btn" @click.stop="openJavBus(row.code)" title="打开 JavBus">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+          </button>
         </template>
       </el-table-column>
     </el-table>
@@ -85,7 +88,8 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Plus } from '@element-plus/icons-vue'
-import { chartsApi, todosApi } from '../api'
+import { chartsApi, todosApi, moviesApi } from '../api'
+import { getJavBusUrl } from '../utils/movieUrl'
 
 const route = useRoute()
 const chart = ref(null)
@@ -122,9 +126,19 @@ const getScoreClass = (score) => {
 }
 
 const showDetail = (row) => {
-  if (row.in_library && row.movie_id) {
-    // TODO: 显示本地影片详情
+  if (row.in_library) {
+    moviesApi.get(row.code).then(movie => {
+      window.showMovieDetail(movie)
+    }).catch(() => {
+      openJavBus(row.code)
+    })
+  } else {
+    openJavBus(row.code)
   }
+}
+
+const openJavBus = (code) => {
+  window.open(getJavBusUrl(code), '_blank')
 }
 
 const addToTodo = async (row) => {
@@ -285,6 +299,38 @@ onMounted(() => {
   display: flex;
   justify-content: center;
   padding: 24px 0;
+}
+
+.table-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-right: 4px;
+}
+
+.table-action-btn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+
+.table-action-btn.primary {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+
+.table-action-btn.primary:hover {
+  background: #D4958A;
+  border-color: #D4958A;
 }
 
 @media (max-width: 768px) {

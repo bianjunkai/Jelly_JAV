@@ -90,6 +90,14 @@
                     <span class="item-date">{{ formatDate(item.added_at) }}</span>
                   </div>
                 </div>
+                <div class="item-actions-row">
+                  <button class="action-icon-btn" @click.stop="openJavBus(item.code)" title="JavBus">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                  </button>
+                  <button class="action-icon-btn javdb" @click.stop="openJavDb(item.code)" title="JavDB">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                  </button>
+                </div>
 
                 <div class="item-actions">
                   <el-button
@@ -139,7 +147,8 @@ import {
   ArrowDown,
   DocumentChecked
 } from '@element-plus/icons-vue'
-import { todosApi } from '../api'
+import { todosApi, moviesApi } from '../api'
+import { getJavBusUrl, getJavDbUrl } from '../utils/movieUrl'
 
 const loading = ref(false)
 const groups = ref([])
@@ -248,8 +257,19 @@ const batchComplete = async () => {
 }
 
 const showDetail = (item) => {
-  // 可以显示影片详情弹窗
-  console.log('Show detail:', item)
+  moviesApi.get(item.code).then(movie => {
+    window.showMovieDetail(movie)
+  }).catch(() => {
+    window.open(getJavBusUrl(item.code), '_blank')
+  })
+}
+
+const openJavBus = (code) => {
+  window.open(getJavBusUrl(code), '_blank')
+}
+
+const openJavDb = (code) => {
+  window.open(getJavDbUrl(code), '_blank')
 }
 
 onMounted(() => {
@@ -502,6 +522,39 @@ onMounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 200px;
+}
+
+.item-actions-row {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  padding-right: 8px;
+}
+
+.action-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-icon-btn:hover {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+
+.action-icon-btn.javdb:hover {
+  background: #E8A598;
+  border-color: #E8A598;
 }
 
 .item-actions {

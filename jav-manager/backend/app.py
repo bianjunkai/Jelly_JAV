@@ -103,6 +103,7 @@ def get_movies():
     search = request.args.get('search', '')
     actor = request.args.get('actor')
     min_score = float(request.args.get('min_score', 0))
+    max_score = float(request.args.get('max_score', 0))
     chart = request.args.get('list')
 
     query = db.session.query(Movie)
@@ -120,7 +121,9 @@ def get_movies():
     if actor:
         query = query.filter(Movie.actors.contains(actor))
     if min_score > 0:
-        query = query.filter(Movie.javdb_score >= min_score)
+        query = query.filter(Movie.javdb_score.isnot(None), Movie.javdb_score >= min_score)
+    if max_score > 0:
+        query = query.filter(Movie.javdb_score.isnot(None), Movie.javdb_score < max_score)
 
     # 榜单筛选
     if chart:
@@ -659,6 +662,21 @@ def mark_report_read(report_id):
     return jsonify({'success': True})
 
 
+@app.route('/api/reports/<int:report_id>', methods=['DELETE'])
+def delete_report(report_id):
+    """删除报告"""
+    from models import Report
+
+    report = db.session.get(Report, report_id)
+    if not report:
+        return jsonify({'error': 'Report not found'}), 404
+
+    db.session.delete(report)
+    db.session.commit()
+
+    return jsonify({'success': True})
+
+
 @app.route('/api/todos', methods=['GET'])
 def get_todos():
     """获取待看清单"""
@@ -1162,13 +1180,27 @@ def init_db():
         init_default_charts(db)
 
 
+def fetch_and_generate_weekly(app=None, db=None):
+    """每次生成周报前，先抓取关注演员新片"""
+    if app is None:
+        from app import app as current_app
+        app = current_app
+    if db is None:
+        from app import db as current_db
+        db = current_db
+
+    _fetch_all_releases_thread(app, db)
+    from services.report_generator import generate_weekly_report
+    return generate_weekly_report(app, db)
+
+
 def init_scheduler():
     """初始化定时任务"""
     from services.report_generator import generate_weekly_report, generate_monthly_report, generate_annual_report
 
-    # 每周一 09:00
+    # 每周一 09:00（先抓取新片，再生成报告）
     scheduler.add_job(
-        lambda: generate_weekly_report(app, db),
+        lambda: fetch_and_generate_weekly(app, db),
         'cron',
         day_of_week='mon',
         hour=9,

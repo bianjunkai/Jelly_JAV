@@ -20,7 +20,7 @@
 
         <div class="reports-grid">
           <!-- 周报 -->
-          <div v-if="latestReports.weekly" class="report-card weekly" @click="showWeekly = true">
+          <div v-if="latestReports.weekly" class="report-card weekly" @click="goToReport(latestReports.weekly)">
             <div class="report-icon">
               <el-icon size="32" color="#fff"><Calendar /></el-icon>
             </div>
@@ -43,7 +43,7 @@
           </div>
 
           <!-- 月报 -->
-          <div v-if="latestReports.monthly" class="report-card monthly" @click="showMonthly = true">
+          <div v-if="latestReports.monthly" class="report-card monthly" @click="goToReport(latestReports.monthly)">
             <div class="report-icon">
               <el-icon size="32" color="#fff"><TrendCharts /></el-icon>
             </div>
@@ -66,7 +66,7 @@
           </div>
 
           <!-- 年报 -->
-          <div v-if="latestReports.annual" class="report-card annual">
+          <div v-if="latestReports.annual" class="report-card annual" @click="goToReport(latestReports.annual)">
             <div class="report-icon">
               <el-icon size="32" color="#fff"><Trophy /></el-icon>
             </div>
@@ -82,7 +82,7 @@
               </p>
               <p class="report-date">{{ formatDate(latestReports.annual.generated_at) }}</p>
             </div>
-            <button class="report-btn" @click.stop="$router.push('/charts/JavDB%20TOP250/gaps')">查看缺口</button>
+            <button class="report-btn" @click="$router.push('/charts/JavDB%20TOP250/gaps')">查看缺口</button>
           </div>
         </div>
       </div>
@@ -139,6 +139,7 @@
             :key="report.id"
             class="history-item"
             :class="{ unread: !report.is_read }"
+            @click="goToReport(report)"
           >
             <div class="history-icon" :class="report.type">
               <el-icon size="18">
@@ -170,6 +171,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   TrendCharts,
@@ -180,12 +182,12 @@ import {
 } from '@element-plus/icons-vue'
 import { reportsApi } from '../api'
 
+const router = useRouter()
+
 const loading = ref(false)
 const generating = ref(null)
 const latestReports = ref({ weekly: null, monthly: null, annual: null })
 const reports = ref([])
-const showWeekly = ref(false)
-const showMonthly = ref(false)
 
 const fetchReports = async () => {
   loading.value = true
@@ -229,6 +231,10 @@ const formatDate = (dateStr) => {
 const getTypeName = (type) => {
   const map = { weekly: '周报', monthly: '月报', annual: '年报' }
   return map[type] || type
+}
+
+const goToReport = (report) => {
+  router.push(`/reports/${report.type}/${report.id}`)
 }
 
 onMounted(() => {

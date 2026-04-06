@@ -38,6 +38,12 @@ const routes = [
     meta: { title: '发现', icon: 'Compass' }
   },
   {
+    path: '/reports/:type/:id',
+    name: 'ReportDetail',
+    component: () => import('../views/ReportDetail.vue'),
+    meta: { title: '报告详情' }
+  },
+  {
     path: '/todo',
     name: 'Todo',
     component: () => import('../views/TodoList.vue'),

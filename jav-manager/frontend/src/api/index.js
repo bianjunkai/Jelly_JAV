@@ -50,7 +50,8 @@ export const reportsApi = {
   latest: () => api.get('/reports/latest'),
   list: () => api.get('/reports'),
   generate: (type) => api.post('/reports/generate', { type }),
-  markRead: (id) => api.put(`/reports/${id}/read`)
+  markRead: (id) => api.put(`/reports/${id}/read`),
+  delete: (id) => api.delete(`/reports/${id}`)
 }
 
 // 待看清单 API

@@ -91,11 +91,11 @@
 
         <div class="reports-grid" v-if="latestReports">
           <div
-            v-for="(report, type) in reportList"
-            :key="type"
+            v-for="report in reportList"
+            :key="report.type"
             class="report-card"
-            @click="$router.push('/discover')"
-            v-show="latestReports[type]"
+            :class="{ empty: !latestReports[report.type] }"
+            @click="goToReport(report.type)"
           >
             <div class="report-icon" :style="{ background: report.bgColor }">
               <el-icon :size="20" :color="report.iconColor">
@@ -104,8 +104,11 @@
             </div>
             <div class="report-content">
               <h4 class="report-title">{{ report.title }}</h4>
-              <p class="report-desc">{{ latestReports[type]?.data?.total_count || 0 }} {{ report.unit }}</p>
-              <span class="report-date">{{ formatDate(latestReports[type]?.generated_at) }}</span>
+              <p class="report-desc" v-if="latestReports[report.type]">
+                {{ latestReports[report.type]?.data?.total_count || 0 }} {{ report.unit }}
+              </p>
+              <p class="report-desc empty-tip" v-else>暂无报告</p>
+              <span class="report-date" v-if="latestReports[report.type]">{{ formatDate(latestReports[report.type]?.generated_at) }}</span>
             </div>
           </div>
         </div>
@@ -191,6 +194,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   Film,
@@ -208,6 +212,7 @@ import {
 } from '@element-plus/icons-vue'
 import { statsApi, reportsApi, chartsApi, tasksApi, moviesApi } from '../api'
 
+const router = useRouter()
 const stats = ref({})
 const latestReports = ref(null)
 const charts = ref([])
@@ -284,6 +289,15 @@ const reportList = [
 const navigateTo = (route) => {
   if (route) {
     router.push(route)
+  }
+}
+
+const goToReport = (type) => {
+  const report = latestReports.value?.[type]
+  if (report?.id) {
+    router.push(`/reports/${type}/${report.id}`)
+  } else {
+    router.push('/discover')
   }
 }
 
@@ -631,6 +645,16 @@ button:hover .btn-icon {
   box-shadow: var(--shadow-hover);
 }
 
+.report-card.empty {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.report-card.empty:hover {
+  transform: none;
+  box-shadow: var(--shadow-card);
+}
+
 .report-icon {
   width: 48px;
   height: 48px;
@@ -661,6 +685,11 @@ button:hover .btn-icon {
 .report-date {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.empty-tip {
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 /* 右侧面板 */

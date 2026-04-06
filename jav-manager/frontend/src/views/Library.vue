@@ -38,11 +38,11 @@
         </div>
 
         <el-select v-model="filterScore" placeholder="评分" clearable class="filter-select" @change="handleSearch">
-          <el-option label="全部评分" :value="0" class="score-all">全部评分</el-option>
-          <el-option label="★ 4.5+ 分" :value="4.5" class="score-high">★ 4.5+ 分</el-option>
-          <el-option label="★ 4.0+ 分" :value="4.0" class="score-mid">★ 4.0+ 分</el-option>
-          <el-option label="★ 3.5+ 分" :value="3.5" class="score-normal">★ 3.5+ 分</el-option>
-          <el-option label="★ 3.0+ 分" :value="3.0" class="score-low">★ 3.0+ 分</el-option>
+          <el-option label="全部评分" :value="''" class="score-all">全部评分</el-option>
+          <el-option label="★ 4.5+ 分" :value="'4.5-0'" class="score-high">★ 4.5+ 分</el-option>
+          <el-option label="★ 4.0~4.5 分" :value="'4.0-4.5'" class="score-mid">★ 4.0~4.5 分</el-option>
+          <el-option label="★ 3.5~4.0 分" :value="'3.5-4.0'" class="score-normal">★ 3.5~4.0 分</el-option>
+          <el-option label="★ 3.0~3.5 分" :value="'3.0-3.5'" class="score-low">★ 3.0~3.5 分</el-option>
         </el-select>
 
         <el-select v-model="filterList" placeholder="榜单" clearable class="filter-select" @change="handleSearch">
@@ -179,7 +179,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Grid, List, Sort, Picture, Top, Bottom } from '@element-plus/icons-vue'
 import { moviesApi, chartsApi } from '../api'
@@ -190,7 +190,7 @@ const pageSize = ref(24)
 const total = ref(0)
 const viewMode = ref('grid')
 const searchKeyword = ref('')
-const filterScore = ref(0)
+const filterScore = ref('')
 const filterList = ref('')
 const sortBy = ref('date_added')
 const sortOrder = ref('desc')
@@ -227,8 +227,16 @@ const fetchMovies = async () => {
     if (searchKeyword.value) {
       params.search = searchKeyword.value
     }
-    if (filterScore.value > 0) {
-      params.min_score = filterScore.value
+    if (filterScore.value) {
+      const parts = filterScore.value.split('-')
+      const min = Number(parts[0])
+      const max = Number(parts[1])
+      if (min > 0) params.min_score = min
+      if (max > 0) params.max_score = max
+      // 评分筛选时默认按评分排序，方便查看结果
+      if (!sortBy.value.includes('score')) {
+        params.sort = 'javdb_score_desc'
+      }
     }
     if (filterList.value) {
       params.list = filterList.value
@@ -256,11 +264,6 @@ onMounted(() => {
   fetchCharts()
 })
 
-// 监听筛选条件变化
-watch([filterScore, filterList], () => {
-  currentPage.value = 1
-  fetchMovies()
-})
 </script>
 
 <style scoped>
